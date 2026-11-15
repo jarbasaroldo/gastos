@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>Controle de Gastos</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Gastos</h1>
+    <span id="spinner" aria-live="polite"></span>
+  </header>
+
+  <nav>
+    <button data-aba="lista" class="ativa">Lista</button>
+    <button data-aba="escanear">Escanear</button>
+    <button data-aba="compras">Compras</button>
+    <button data-aba="config">Config</button>
+  </nav>
+
+  <main>
+    <!-- LISTA DE COMPRAS -->
+    <section id="aba-lista" class="aba">
+      <form id="form-item" class="linha">
+        <input id="novo-item" placeholder="Adicionar item (ex.: arroz)" required autocomplete="off">
+        <input id="novo-qtd" type="number" min="0" step="any" value="1" aria-label="Quantidade">
+        <button type="submit">Adicionar</button>
+      </form>
+      <ul id="lista" class="lista"></ul>
+      <button id="btn-limpar" class="secundario">Remover itens comprados</button>
+    </section>
+
+    <!-- ESCANEAR NFC-e -->
+    <section id="aba-escanear" class="aba" hidden>
+      <div id="leitor"></div>
+      <button id="btn-camera">Ler QR Code da nota</button>
+      <form id="form-link" class="linha">
+        <input id="link-nfce" type="url" placeholder="…ou cole o link do QR Code da NFC-e">
+        <button type="submit">Importar</button>
+      </form>
+      <details>
+        <summary>Importação manual (se a SEFAZ bloquear a consulta)</summary>
+        <p class="dica">Abra o link da nota no navegador, salve/copie o código-fonte da página e cole abaixo.</p>
+        <textarea id="html-nfce" rows="5" placeholder="Cole aqui o HTML da página da nota"></textarea>
+        <button id="btn-html" class="secundario">Importar HTML</button>
+      </details>
+      <div id="resultado"></div>
+    </section>
+
+    <!-- HISTÓRICO -->
+    <section id="aba-compras" class="aba" hidden>
+      <div id="resumo" class="cards"></div>
+      <ul id="compras" class="lista"></ul>
+    </section>
+
+    <!-- CONFIGURAÇÃO -->
+    <section id="aba-config" class="aba" hidden>
+      <form id="form-config">
+        <label>URL do Web App (Apps Script)
+          <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" required>
+        </label>
+        <label>Token de acesso
+          <input id="cfg-token" type="password" placeholder="Gerado pelo setup()" required>
+        </label>
+        <div class="linha">
+          <button type="submit">Salvar e testar</button>
+          <button type="button" id="btn-link-cfg" class="secundario">Copiar link de configuração</button>
+        </div>
+        <p class="dica">O link de configuração preenche URL e token em outro aparelho (ex.: celular).
+          Ele contém o token — compartilhe só com quem pode alterar sua planilha.</p>
+      </form>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+</body>
+</html>
