@@ -68,7 +68,7 @@ function mostrarAba(nome) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('ativa', b.dataset.aba === nome));
   document.querySelectorAll('.aba').forEach(s => (s.hidden = s.id !== 'aba-' + nome));
   if (nome !== 'escanear') pararCamera();
-  if (nome === 'lista' && cfg.url) carregarListas();
+  if (nome === 'lista' && cfg.url) { carregarListas(); if (!modeloResumo) carregarModelo(); }
   if (nome === 'compras' && cfg.url) carregarCompras();
   if (nome === 'config') { $('#cfg-url').value = cfg.url || ''; $('#cfg-token').value = cfg.token || ''; }
 }
@@ -108,12 +108,14 @@ function renderLista() {
   const ul = $('#lista');
   ul.replaceChildren();
   const comprado = it => it.status === 'Comprado';
-  const ord = [...itens].sort((a, b) =>
-    comprado(a) - comprado(b) || String(a.item).localeCompare(String(b.item), 'pt-BR'));
+  const ord = [...itens].sort(porSetorItem);
   if (!ord.length) {
     ul.append(el('li', { className: 'vazio', textContent: listaAtual ? 'Lista vazia' : 'Crie uma lista em "Nova lista"' }));
     return;
   }
+
+  ul.append(el('li', { className: 'cab' },
+    el('span', { className: 'setor', textContent: 'Setor' }), el('span', { textContent: 'Item' })));
 
   for (const it of ord) {
     const cb = el('input', { type: 'checkbox', checked: comprado(it) });
@@ -134,6 +136,7 @@ function renderLista() {
     const del = el('button', { className: 'del', textContent: '✕', title: 'Remover', type: 'button' });
     del.addEventListener('click', () => remover(it));
     ul.append(el('li', { className: comprado(it) ? 'feito' : '' },
+      el('span', { className: 'setor', textContent: it.setor || '—' }),
       el('label', {}, cb,
         el('span', { className: 'info' }, el('span', { className: 'nome', textContent: it.item }), sub),
         tag,
@@ -142,30 +145,42 @@ function renderLista() {
   }
 }
 
-/* ---------- Nova lista (a partir da aba "modelo") ---------- */
+/** Ordem alfabética por setor e depois item; itens sem setor ficam no fim. */
+const cmp = (a, b) => String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base' });
+function porSetorItem(a, b) {
+  if (!a.setor !== !b.setor) return a.setor ? -1 : 1;
+  return cmp(a.setor || '', b.setor || '') || cmp(a.item, b.item);
+}
+
+/* ---------- Setores conhecidos (sugestões do campo "Setor") ---------- */
+
+let modeloResumo = null;
+async function carregarModelo() {
+  try {
+    modeloResumo = await api('resumoModelo');
+    $('#lista-setores').replaceChildren(...modeloResumo.setores.map(s => el('option', { value: s })));
+  } catch { /* sugestões são opcionais */ }
+  return modeloResumo;
+}
+
+/* ---------- Nova lista (sempre a partir da aba Modelo) ---------- */
 
 async function abrirNovaLista() {
   const f = $('#form-nova');
   if (!f.hidden) { f.hidden = true; return; }
   $('#nova-data').value = new Date().toLocaleDateString('sv-SE'); // aaaa-mm-dd no fuso local
+  $('#cont-modelo').textContent = '';
   f.hidden = false;
-  try {
-    const r = await api('resumoModelo');
-    document.querySelectorAll('#form-nova .cont').forEach(s => {
-      const n = r.porFrequencia[s.dataset.freq] || 0;
-      s.textContent = `(${n} ${n === 1 ? 'item' : 'itens'})`;
-    });
-  } catch { /* contagem é opcional */ }
+  const r = await carregarModelo();
+  if (r) $('#cont-modelo').textContent = ` (${r.total} ${r.total === 1 ? 'item' : 'itens'})`;
 }
 
 async function criarLista(ev) {
   ev.preventDefault();
   const data = $('#nova-data').value.replace(/-/g, '');
-  const frequencias = [...document.querySelectorAll('#form-nova input[name=freq]:checked')].map(c => c.value);
   try {
-    const r = await api('criarLista', { data, frequencias });
-    toast((r.criada ? 'Lista criada' : 'A lista já existia') +
-      (frequencias.length ? ` · ${r.adicionados} item(ns) do modelo incluído(s)` : '') + '.');
+    const r = await api('criarLista', { data });
+    toast((r.criada ? 'Lista criada' : 'A lista já existia') + ` · ${r.adicionados} item(ns) do Modelo incluído(s).`);
     $('#form-nova').hidden = true;
     selecionarLista(r.nome);
     carregarListas();
@@ -178,11 +193,12 @@ async function adicionar(ev) {
   const nome = $('#novo-item').value.trim();
   if (!nome) return;
   const quantidade = Number($('#novo-qtd').value) || 1;
+  const setor = $('#novo-setor').value.trim();
   $('#novo-item').value = '';
   $('#novo-qtd').value = 1;
   $('#novo-item').focus();
   try {
-    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade } });
+    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade, setor } });
     itens.push(novo);
     renderLista();
   } catch (e) { toast(e.message, true); $('#novo-item').value = nome; }

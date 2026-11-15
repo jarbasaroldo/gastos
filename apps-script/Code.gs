@@ -15,27 +15,34 @@ const SPREADSHEET_ID = '1FyjzkPfp0D40FAzETEM7JQ_-I2CSNiSFO-_7gHgxmp4';
 const FUSO = 'America/Sao_Paulo';
 
 const ABAS = {
+  // Mesma ordem de colunas da aba Modelo (a coluna A, vazia no Modelo, guarda a chave da nota).
   COMPRAS: {
     nome: 'Compras',
-    cab: ['ChaveNFCe', 'DataEmissao', 'Estabelecimento', 'Descricao', 'Quantidade', 'Unidade',
-          'ValorUnitario', 'TotalNota'],
+    cab: ['ChaveNFCe', 'Item', 'Periodicidade', 'Setor', 'Unidade', 'Quantidade',
+          'Valor Unitário', 'Valor Total', 'Local', 'Data Compra'],
   },
-  MODELO: { nome: 'modelo', cab: ['Item', 'Quantidade', 'Unidade', 'Frequencia'] },
+  MODELO: { nome: 'Modelo', cab: ['', 'Item', 'Periodicidade estimada', 'Setor', 'Unidade', 'Quantidade'] },
   LOG:    { nome: 'Log', cab: ['DataHora', 'Acao', 'Chave', 'Erro', 'Detalhe', 'Url'] },
 };
+const CC = {}; // índice de coluna da aba Compras (1-based)
+ABAS.COMPRAS.cab.forEach((h, i) => (CC[h] = i + 1));
 
-/** Layout antigo da aba Compras (v1), convertido automaticamente para o novo. */
-const CAB_COMPRAS_V1 = ['ChaveNFCe', 'DataEmissao', 'Estabelecimento', 'CNPJ', 'Codigo', 'Descricao',
-  'Quantidade', 'Unidade', 'ValorUnitario', 'ValorTotalItem', 'TotalNota', 'UrlConsulta', 'ImportadoEm'];
+/** Layouts antigos da aba Compras, convertidos automaticamente para o atual. */
+const CABS_COMPRAS_ANTIGOS = [
+  ['ChaveNFCe', 'DataEmissao', 'Estabelecimento', 'CNPJ', 'Codigo', 'Descricao', 'Quantidade', 'Unidade',
+   'ValorUnitario', 'ValorTotalItem', 'TotalNota', 'UrlConsulta', 'ImportadoEm'],
+  ['ChaveNFCe', 'DataEmissao', 'Estabelecimento', 'Descricao', 'Quantidade', 'Unidade', 'ValorUnitario', 'TotalNota'],
+];
 
-/** Colunas de cada aba de lista "aaaammdd". */
+/** Colunas de cada aba de lista "aaaammdd". "Setor" fica no fim para manter as listas antigas compatíveis. */
 const CAB_LISTA = ['ID', 'Item', 'Quantidade', 'Unidade', 'Frequencia', 'Origem', 'Status', 'CriadoEm',
-  'CompradoEm', 'DescricaoNFCe', 'QtdComprada', 'ValorUnitario', 'ChaveNFCe'];
+  'CompradoEm', 'DescricaoNFCe', 'QtdComprada', 'ValorUnitario', 'ChaveNFCe', 'Setor'];
 const C = {};
 CAB_LISTA.forEach((h, i) => (C[h] = i + 1)); // índice de coluna (1-based)
 
 const CAMPOS_EDITAVEIS = { item: C.Item, quantidade: C.Quantidade, unidade: C.Unidade,
-                           frequencia: C.Frequencia, status: C.Status };
+                           frequencia: C.Frequencia, status: C.Status, setor: C.Setor };
+const PALAVRAS_IGNORADAS = { com: 1, sem: 1, para: 1, tipo: 1, und: 1, unidade: 1, pct: 1, pacote: 1 };
 const FREQUENCIAS = ['Semanal', 'Quinzenal', 'Mensal', 'Demanda'];
 const RE_LISTA = /^\d{8}$/;
 const FORMATO_VALOR = '0.00'; // exibe NN,NN numa planilha com localidade Brasil
@@ -124,42 +131,57 @@ function escreverCab_(sh, cab) {
   sh.setFrozenRows(1);
 }
 
+/** Localiza uma aba pelo nome sem diferenciar maiúsculas/espaços ("modelo" == "Modelo "). */
+function acharAba_(ss, nome) {
+  const alvo = nome.trim().toLowerCase();
+  return ss.getSheets().filter(s => s.getName().trim().toLowerCase() === alvo)[0] || null;
+}
+
 function aba_(ss, def) {
-  let sh = ss.getSheetByName(def.nome);
+  let sh = acharAba_(ss, def.nome);
   if (!sh) sh = ss.insertSheet(def.nome);
   if (sh.getLastRow() === 0) {
     escreverCab_(sh, def.cab);
     if (def === ABAS.COMPRAS) formatarCompras_(sh, 2, sh.getMaxRows() - 1);
     return sh;
   }
-  if (def === ABAS.COMPRAS) migrarCompras_(sh);
+  if (def === ABAS.COMPRAS) migrarCompras_(sh, ss);
   return sh;
 }
 
 function formatarCompras_(sh, linha, qtd) {
   if (qtd < 1) return;
-  sh.getRange(linha, 1, qtd, 1).setNumberFormat('@');               // chave de 44 dígitos como texto
-  sh.getRange(linha, 2, qtd, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(linha, 7, qtd, 2).setNumberFormat(FORMATO_VALOR);     // ValorUnitario e TotalNota
+  sh.getRange(linha, CC.ChaveNFCe, qtd, 1).setNumberFormat('@');                   // chave de 44 dígitos como texto
+  sh.getRange(linha, CC['Valor Unitário'], qtd, 2).setNumberFormat(FORMATO_VALOR); // Valor Unitário e Valor Total
+  sh.getRange(linha, CC['Data Compra'], qtd, 1).setNumberFormat('dd/MM/yyyy HH:mm');
 }
 
-/** Converte a aba Compras do layout antigo para o novo, preservando os dados. */
-function migrarCompras_(sh) {
+/** Converte a aba Compras de um layout antigo para o atual, preservando os dados. */
+function migrarCompras_(sh, ss) {
   const larg = sh.getLastColumn();
-  const cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(String);
-  if (cab.slice(0, ABAS.COMPRAS.cab.length).join('|') === ABAS.COMPRAS.cab.join('|')) return;
-  if (cab.join('|') !== CAB_COMPRAS_V1.join('|')) {
+  const cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(h => String(h).trim());
+  while (cab.length && !cab[cab.length - 1]) cab.pop(); // ignora colunas vazias à direita
+  if (cab.join('|') === ABAS.COMPRAS.cab.join('|')) return;
+  if (!CABS_COMPRAS_ANTIGOS.some(a => a.join('|') === cab.join('|'))) {
     throw new Error('A aba Compras tem colunas inesperadas. Esperado: ' + ABAS.COMPRAS.cab.join(', '));
   }
   const n = sh.getLastRow();
-  const dados = n > 1 ? sh.getRange(2, 1, n - 1, larg).getValues() : [];
-  const idx = ABAS.COMPRAS.cab.map(h => cab.indexOf(h));
-  const novos = dados.map(r => idx.map(i => r[i]));
+  const dados = n > 1 ? sh.getRange(2, 1, n - 1, cab.length).getValues() : [];
+  const refs = refsModelo_(lerModelo_(ss));
+  const novos = dados.filter(r => r.some(v => v !== '')).map(r => {
+    const o = {};
+    cab.forEach((h, i) => (o[h] = r[i]));
+    const q = Number(o.Quantidade) || 0, vu = Number(o.ValorUnitario) || 0;
+    const cls = classificar_(o.Descricao, refs);
+    return [o.ChaveNFCe, o.Descricao, cls.periodicidade, cls.setor, o.Unidade, o.Quantidade, o.ValorUnitario,
+            o.ValorTotalItem !== undefined && o.ValorTotalItem !== '' ? o.ValorTotalItem : round2_(q * vu),
+            o.Estabelecimento, o.DataEmissao];
+  });
   sh.clear();
   escreverCab_(sh, ABAS.COMPRAS.cab);
   formatarCompras_(sh, 2, sh.getMaxRows() - 1);
   if (novos.length) sh.getRange(2, 1, novos.length, novos[0].length).setValues(novos);
-  log_('migracao', '', 'Aba Compras convertida para o novo layout', novos.length + ' linha(s)', '');
+  log_('migracao (info)', '', 'Aba Compras convertida para o novo layout', novos.length + ' linha(s)', '', true);
 }
 
 function iso_(v) { return v instanceof Date ? v.toISOString() : (v || ''); }
@@ -176,14 +198,16 @@ function linhaPorId_(sh, id) {
 
 /* ================================= Log ================================== */
 
-function log_(acao, chave, erro, detalhe, url) {
+/** Grava na aba Log. `info = true` para eventos informativos (não aparecem como erro no console). */
+function log_(acao, chave, erro, detalhe, url, info) {
   try {
     const sh = aba_(ss_(), ABAS.LOG);
     sh.appendRow([new Date(), acao, chave ? "'" + chave : '', erro || '', detalhe || '', url || '']);
   } catch (e) {
     console.error('Falha ao gravar log: ' + e);
   }
-  console.error('[' + acao + '] ' + erro + (detalhe ? ' | ' + detalhe : ''));
+  const msg = '[' + acao + '] ' + erro + (detalhe ? ' | ' + detalhe : '');
+  if (info) console.info(msg); else console.error(msg);
 }
 
 /* ========================= Listas (abas aaaammdd) ======================= */
@@ -200,7 +224,11 @@ function nomeLista_(s) {
 function abaLista_(ss, nome, criar) {
   nome = nomeLista_(nome);
   let sh = ss.getSheetByName(nome);
-  if (sh) return sh;
+  if (sh) {
+    // Listas criadas antes da coluna Setor: completa o cabeçalho.
+    if (sh.getRange(1, C.Setor).getValue() !== 'Setor') sh.getRange(1, C.Setor).setValue('Setor').setFontWeight('bold');
+    return sh;
+  }
   if (!criar) throw new Error('A lista ' + nome + ' não existe.');
   sh = ss.insertSheet(nome);
   escreverCab_(sh, CAB_LISTA);
@@ -225,6 +253,7 @@ function linhaLista_(o, agora) {
   r[C.Origem - 1] = o.origem || 'Manual';
   r[C.Status - 1] = o.status || 'Pendente';
   r[C.CriadoEm - 1] = agora;
+  r[C.Setor - 1] = o.setor || '';
   return r;
 }
 
@@ -235,6 +264,7 @@ function objLista_(r) {
     criadoEm: iso_(r[C.CriadoEm - 1]), compradoEm: iso_(r[C.CompradoEm - 1]),
     descricaoNfce: r[C.DescricaoNFCe - 1], qtdComprada: r[C.QtdComprada - 1],
     valorUnitario: r[C.ValorUnitario - 1], chave: String(r[C.ChaveNFCe - 1] || ''),
+    setor: r[C.Setor - 1] || '',
   };
 }
 
@@ -245,8 +275,8 @@ function lerItensAba_(sh) {
 }
 
 /**
- * Cria a aba "aaaammdd" (se não existir) e, opcionalmente, inclui os itens da aba "modelo"
- * das frequências escolhidas. Itens já presentes na lista não são duplicados.
+ * Cria a aba "aaaammdd" (se não existir) com todos os itens da aba Modelo, ordenados por setor e item.
+ * `frequencias` (opcional) restringe às periodicidades informadas. Itens já presentes não são duplicados.
  */
 function criarLista_(data, frequencias) {
   const ss = ss_();
@@ -255,23 +285,30 @@ function criarLista_(data, frequencias) {
   const sh = abaLista_(ss, nome, true);
 
   const freqs = (frequencias || []).map(normFreq_).filter(Boolean);
-  let adicionados = 0;
-  if (freqs.length) {
-    const presentes = {};
-    lerItensAba_(sh).forEach(i => (presentes[normalizar_(i.item)] = true));
-    const agora = new Date();
-    const linhas = [];
-    lerModelo_(ss).forEach(m => {
+  const presentes = {};
+  lerItensAba_(sh).forEach(i => (presentes[normalizar_(i.item)] = true));
+  const agora = new Date();
+  const linhas = [];
+  lerModelo_(ss)
+    .filter(m => !freqs.length || freqs.indexOf(m.frequencia) >= 0)
+    .sort(porSetorItem_)
+    .forEach(m => {
       const k = normalizar_(m.item);
-      if (freqs.indexOf(m.frequencia) < 0 || presentes[k]) return;
+      if (presentes[k]) return;
       presentes[k] = true;
       linhas.push(linhaLista_({ item: m.item, quantidade: m.quantidade, unidade: m.unidade,
-                                frequencia: m.frequencia, origem: 'Modelo' }, agora));
+                                frequencia: m.frequencia, setor: m.setor, origem: 'Modelo' }, agora));
     });
-    if (linhas.length) sh.getRange(sh.getLastRow() + 1, 1, linhas.length, CAB_LISTA.length).setValues(linhas);
-    adicionados = linhas.length;
-  }
-  return { nome: nome, criada: !existia, adicionados: adicionados };
+  if (linhas.length) sh.getRange(sh.getLastRow() + 1, 1, linhas.length, CAB_LISTA.length).setValues(linhas);
+  return { nome: nome, criada: !existia, adicionados: linhas.length };
+}
+
+/** Ordena por setor e depois item (alfabética, sem diferenciar acentos); sem setor vai para o fim. */
+function porSetorItem_(a, b) {
+  const sa = normalizar_(a.setor), sb = normalizar_(b.setor);
+  if (sa !== sb) return !sa ? 1 : !sb ? -1 : (sa < sb ? -1 : 1);
+  const ia = normalizar_(a.item), ib = normalizar_(b.item);
+  return ia < ib ? -1 : ia > ib ? 1 : 0;
 }
 
 function adicionarItem_(lista, item) {
@@ -279,7 +316,8 @@ function adicionarItem_(lista, item) {
   if (!nome) throw new Error('Informe o nome do item.');
   const sh = abaLista_(ss_(), lista, false);
   const r = linhaLista_({ item: nome, quantidade: item.quantidade, unidade: String(item.unidade || '').trim(),
-                          frequencia: normFreq_(item.frequencia), origem: 'Manual' }, new Date());
+                          frequencia: normFreq_(item.frequencia), setor: String(item.setor || '').trim(),
+                          origem: 'Manual' }, new Date());
   sh.getRange(sh.getLastRow() + 1, 1, 1, r.length).setValues([r]);
   return objLista_(r);
 }
@@ -329,7 +367,7 @@ function normFreq_(s) {
 
 /** Lê a aba "modelo" localizando as colunas pelo nome do cabeçalho (sem diferenciar acentos/caixa). */
 function lerModelo_(ss) {
-  const sh = ss.getSheets().filter(s => s.getName().trim().toLowerCase() === 'modelo')[0];
+  const sh = acharAba_(ss, ABAS.MODELO.nome);
   if (!sh || sh.getLastRow() < 2) return [];
   const vals = sh.getDataRange().getValues();
   const cab = vals[0].map(normalizar_);
@@ -339,6 +377,7 @@ function lerModelo_(ss) {
   const cq = col(['quantidade', 'qtd', 'qtde']);
   const cu = col(['unidade', 'un']);
   const cf = col(['frequencia', 'periodicidade', 'recorrencia', 'tipo']);
+  const cs = col(['setor', 'secao', 'departamento', 'categoria']);
   return vals.slice(1)
     .filter(r => String(r[ci] || '').trim())
     .map(r => ({
@@ -346,15 +385,54 @@ function lerModelo_(ss) {
       quantidade: cq >= 0 ? Number(r[cq]) || 1 : 1,
       unidade: cu >= 0 ? String(r[cu] || '').trim() : '',
       frequencia: cf >= 0 ? normFreq_(r[cf]) : '',
+      setor: cs >= 0 ? String(r[cs] || '').trim() : '',
     }));
 }
 
 function resumoModelo_() {
   const itens = lerModelo_(ss_());
   const cont = {};
+  const setores = {};
   FREQUENCIAS.forEach(f => (cont[f] = 0));
-  itens.forEach(i => { if (cont[i.frequencia] !== undefined) cont[i.frequencia]++; });
-  return { total: itens.length, porFrequencia: cont };
+  itens.forEach(i => {
+    if (cont[i.frequencia] !== undefined) cont[i.frequencia]++;
+    if (i.setor) setores[i.setor] = true;
+  });
+  return { total: itens.length, porFrequencia: cont,
+           setores: Object.keys(setores).sort((a, b) => a.localeCompare(b, 'pt-BR')) };
+}
+
+/* ===================== Casamento produto da nota ↔ item ================= */
+
+function palavras_(s) {
+  return normalizar_(s).split(' ').filter(p => p.length >= 3 && !PALAVRAS_IGNORADAS[p] && !/^\d/.test(p));
+}
+
+/**
+ * Quão bem o nome de um item ("Carne (patinho/alcatra)") casa com a descrição de um produto da nota
+ * ("CARNE PATINHO KG"): 2 = todas as palavras aparecem; 1 = só a primeira palavra; 0 = não casa.
+ */
+function grau_(nomeItem, descNorm) {
+  const ps = palavras_(nomeItem);
+  if (!ps.length) return 0;
+  const tem = p => descNorm.indexOf(' ' + p) >= 0;
+  if (ps.every(tem)) return 2;
+  return tem(ps[0]) ? 1 : 0;
+}
+
+function refsModelo_(modelo) {
+  return modelo.map(m => ({ item: m.item, setor: m.setor, periodicidade: m.frequencia }));
+}
+
+/** Setor e periodicidade de um produto da nota, pelo item do Modelo que melhor casa com ele. */
+function classificar_(descricao, refs) {
+  const d = ' ' + normalizar_(descricao) + ' ';
+  let melhor = null, nota = 0;
+  refs.forEach(r => {
+    const g = grau_(r.item, d);
+    if (g > nota) { nota = g; melhor = r; }
+  });
+  return melhor ? { setor: melhor.setor, periodicidade: melhor.periodicidade } : { setor: '', periodicidade: '' };
 }
 
 /* ================================ NFC-e ================================= */
@@ -396,15 +474,17 @@ function importar_(url, htmlManual) {
     return { duplicada: true, nota: resumoNota_(nota), itens: nota.itens, marcados: [], foraDaLista: 0, lista: null };
   }
 
-  const linhas = nota.itens.map(it => [
-    nota.chave, nota.dataEmissao || '', nota.estabelecimento, it.descricao,
-    it.quantidade, it.unidade, it.valorUnitario, nota.total,
+  const conc = copiarParaLista_(ss, nota, refsModelo_(lerModelo_(ss)));
+
+  // Mesma ordem de colunas da aba Modelo (ver ABAS.COMPRAS.cab).
+  const linhas = nota.itens.map((it, k) => [
+    nota.chave, it.descricao, conc.classes[k].periodicidade, conc.classes[k].setor, it.unidade,
+    it.quantidade, it.valorUnitario, it.valorTotal, nota.estabelecimento, nota.dataEmissao || '',
   ]);
   const inicio = sh.getLastRow() + 1;
   formatarCompras_(sh, inicio, linhas.length);
   sh.getRange(inicio, 1, linhas.length, linhas[0].length).setValues(linhas);
 
-  const conc = copiarParaLista_(ss, nota);
   return { duplicada: false, nota: resumoNota_(nota), itens: nota.itens,
            marcados: conc.marcados, foraDaLista: conc.extras, lista: conc.nome };
 }
@@ -414,36 +494,45 @@ function importar_(url, htmlManual) {
  *  - itens da lista que casam com produtos da nota recebem descrição, qtd, valor e chave, e viram "Comprado";
  *  - produtos da nota que não estavam na lista entram como linhas novas (Origem = "NFC-e").
  */
-function copiarParaLista_(ss, nota) {
+function copiarParaLista_(ss, nota, refs) {
   const nome = Utilities.formatDate(nota.dataEmissao || new Date(), FUSO, 'yyyyMMdd');
   const sh = abaLista_(ss, nome, true);
   const compradoEm = nota.dataEmissao || new Date();
   const descs = nota.itens.map(it => ' ' + normalizar_(it.descricao) + ' ');
   const usados = nota.itens.map(() => false);
+  const classes = nota.itens.map(() => null);
   const marcados = [];
 
   const n = sh.getLastRow();
   const vals = n > 1 ? sh.getRange(2, 1, n - 1, CAB_LISTA.length).getValues() : [];
-  vals.forEach((r, i) => {
-    if (!r[0] || r[C.ChaveNFCe - 1]) return; // já conciliado com outra nota
-    const palavras = normalizar_(r[C.Item - 1]).split(' ').filter(p => p.length >= 3);
-    if (!palavras.length) return;
-    const j = descs.findIndex((d, k) => !usados[k] && palavras.every(p => d.indexOf(' ' + p) >= 0));
+  const conciliadas = {};
+  // 1ª passada: todas as palavras do item aparecem no produto; 2ª: só a primeira palavra.
+  [2, 1].forEach(nivel => vals.forEach((r, i) => {
+    if (!r[0] || r[C.ChaveNFCe - 1] || conciliadas[i]) return; // vazio ou já conciliado
+    const j = descs.findIndex((d, k) => !usados[k] && grau_(r[C.Item - 1], d) >= nivel);
     if (j < 0) return;
     usados[j] = true;
+    conciliadas[i] = true;
     const it = nota.itens[j];
+    classes[j] = { setor: r[C.Setor - 1] || '', periodicidade: r[C.Frequencia - 1] || '' };
     // Colunas Status..ChaveNFCe são contíguas: grava só esse trecho da linha.
     sh.getRange(i + 2, C.Status, 1, C.ChaveNFCe - C.Status + 1).setValues([[
       'Comprado', r[C.CriadoEm - 1], compradoEm, it.descricao, it.quantidade, it.valorUnitario, nota.chave,
     ]]);
     marcados.push(r[C.Item - 1]);
-  });
+  }));
 
   const agora = new Date();
   const extras = [];
   nota.itens.forEach((it, k) => {
+    if (!classes[k] || !classes[k].setor) {
+      const c = classificar_(it.descricao, refs);
+      classes[k] = { setor: (classes[k] && classes[k].setor) || c.setor,
+                     periodicidade: (classes[k] && classes[k].periodicidade) || c.periodicidade };
+    }
     if (usados[k]) return;
     const r = linhaLista_({ item: it.descricao, quantidade: it.quantidade, unidade: it.unidade,
+                            setor: classes[k].setor, frequencia: classes[k].periodicidade,
                             origem: 'NFC-e', status: 'Comprado' }, agora);
     r[C.CompradoEm - 1] = compradoEm;
     r[C.DescricaoNFCe - 1] = it.descricao;
@@ -454,7 +543,7 @@ function copiarParaLista_(ss, nota) {
   });
   if (extras.length) sh.getRange(sh.getLastRow() + 1, 1, extras.length, CAB_LISTA.length).setValues(extras);
 
-  return { nome: nome, marcados: marcados, extras: extras.length };
+  return { nome: nome, marcados: marcados, extras: extras.length, classes: classes };
 }
 
 function resumoNota_(n) {
@@ -574,7 +663,7 @@ function texto_(html) {
     .replace(/\s+/g, ' ').trim();
 }
 
-const MARCAS_ = { acute: '́', grave: '̀', circ: '̂', tilde: '̃', uml: '̈', cedil: '̧' };
+const MARCAS_ = { acute: '\u0301', grave: '\u0300', circ: '\u0302', tilde: '\u0303', uml: '\u0308', cedil: '\u0327' };
 const ENTIDADES_ = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", ordm: 'º', ordf: 'ª', deg: '°' };
 
 function decodificar_(s) {
@@ -586,7 +675,7 @@ function decodificar_(s) {
 }
 
 function normalizar_(s) {
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
@@ -609,11 +698,14 @@ function listarCompras_(limite) {
   const vals = sh.getRange(2, 1, n - 1, ABAS.COMPRAS.cab.length).getValues();
   const porChave = {};
   vals.forEach(r => {
-    const chave = String(r[0] || '') || (r[2] + '|' + iso_(r[1]));
+    const data = r[CC['Data Compra'] - 1], local = r[CC.Local - 1];
+    const chave = String(r[CC.ChaveNFCe - 1] || '') || (local + '|' + iso_(data));
+    if (chave === '|') return;
     if (!porChave[chave]) {
-      porChave[chave] = { chave: chave, data: r[1] instanceof Date ? r[1] : null,
-                          estabelecimento: r[2], total: Number(r[7]) || 0, itens: 0 };
+      porChave[chave] = { chave: chave, data: data instanceof Date ? data : null,
+                          estabelecimento: local, total: 0, itens: 0 };
     }
+    porChave[chave].total += Number(r[CC['Valor Total'] - 1]) || 0; // total da nota = soma dos itens
     porChave[chave].itens++;
   });
   const notas = Object.keys(porChave).map(k => porChave[k])
@@ -625,7 +717,7 @@ function listarCompras_(limite) {
     if (nt.data && nt.data.getMonth() === hoje.getMonth() && nt.data.getFullYear() === hoje.getFullYear()) totalMes += nt.total;
   });
   return {
-    notas: notas.slice(0, limite).map(nt => ({ chave: nt.chave, data: iso_(nt.data), estabelecimento: nt.estabelecimento, total: nt.total, itens: nt.itens })),
+    notas: notas.slice(0, limite).map(nt => ({ chave: nt.chave, data: iso_(nt.data), estabelecimento: nt.estabelecimento, total: round2_(nt.total), itens: nt.itens })),
     totalMes: round2_(totalMes),
     totalGeral: round2_(totalGeral),
   };
@@ -636,7 +728,8 @@ function detalharCompra_(chave) {
   const n = sh.getLastRow();
   if (n < 2 || !chave) return [];
   return sh.getRange(2, 1, n - 1, ABAS.COMPRAS.cab.length).getValues()
-    .filter(r => String(r[0]) === chave)
-    .map(r => ({ descricao: r[3], quantidade: r[4], unidade: r[5], valorUnitario: r[6],
-                 valorTotal: round2_((Number(r[4]) || 0) * (Number(r[6]) || 0)) }));
+    .filter(r => String(r[CC.ChaveNFCe - 1]) === chave)
+    .map(r => ({ descricao: r[CC.Item - 1], setor: r[CC.Setor - 1], quantidade: r[CC.Quantidade - 1],
+                 unidade: r[CC.Unidade - 1], valorUnitario: r[CC['Valor Unitário'] - 1],
+                 valorTotal: r[CC['Valor Total'] - 1] }));
 }

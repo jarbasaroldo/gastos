@@ -35,14 +35,8 @@
         <label>Data da lista
           <input id="nova-data" type="date" required>
         </label>
-        <fieldset>
-          <legend>Incluir itens da aba "modelo"</legend>
-          <label class="check"><input type="checkbox" name="freq" value="Semanal"> Semanais <span class="cont" data-freq="Semanal"></span></label>
-          <label class="check"><input type="checkbox" name="freq" value="Quinzenal"> Quinzenais <span class="cont" data-freq="Quinzenal"></span></label>
-          <label class="check"><input type="checkbox" name="freq" value="Mensal"> Mensais <span class="cont" data-freq="Mensal"></span></label>
-          <label class="check"><input type="checkbox" name="freq" value="Demanda"> Demanda <span class="cont" data-freq="Demanda"></span></label>
-        </fieldset>
-        <p class="dica">Se a lista da data já existir, só os itens que ainda não estão nela são incluídos.</p>
+        <p class="dica">A lista é criada com os itens da aba <strong>Modelo</strong><span id="cont-modelo"></span>,
+          ordenados por setor e item. Se a lista da data já existir, só os itens que faltam são incluídos.</p>
         <div class="linha">
           <button type="submit">Criar lista</button>
           <button type="button" id="btn-cancelar-nova" class="secundario">Cancelar</button>
@@ -51,6 +45,8 @@
 
       <form id="form-item" class="linha">
         <input id="novo-item" placeholder="Adicionar item (ex.: arroz)" required autocomplete="off">
+        <input id="novo-setor" list="lista-setores" placeholder="Setor" aria-label="Setor" autocomplete="off">
+        <datalist id="lista-setores"></datalist>
         <input id="novo-qtd" type="number" min="0" step="any" value="1" aria-label="Quantidade">
         <button type="submit">Adicionar</button>
       </form>

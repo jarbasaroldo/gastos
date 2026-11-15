@@ -45,22 +45,27 @@ docs/                # SPA publicada no GitHub Pages
 
 ### Abas da planilha
 
-**`modelo`** (você mantém; o `setup()` cria vazia se não existir): `Item | Quantidade | Unidade | Frequencia`.
-A frequência aceita `Semanal`, `Quinzenal`, `Mensal` ou `Demanda` (também "semanais", "sob demanda"…).
-As colunas são localizadas pelo nome do cabeçalho, sem diferenciar acentos ou maiúsculas.
+**`Modelo`** (você mantém):
+`(vazia) | Item | Periodicidade estimada | Setor | Unidade | Quantidade | Valor Unitário (R$) | Valor Total (R$) | Local | Comprado`
+- As colunas são localizadas pelo nome do cabeçalho, sem diferenciar acentos ou maiúsculas.
+  O app usa Item, Periodicidade, Setor, Unidade e Quantidade.
+- A periodicidade aceita `Semanal`, `Quinzenal`, `Mensal` ou `Demanda` (também "semanais", "sob demanda"…).
 
 **`aaaammdd`** (uma aba por lista, ex.: `20261115`):
-`ID | Item | Quantidade | Unidade | Frequencia | Origem | Status | CriadoEm | CompradoEm | DescricaoNFCe | QtdComprada | ValorUnitario | ChaveNFCe`
-- É criada ao fazer "Nova lista" no app; pode incluir os itens do `modelo` das frequências escolhidas.
+`ID | Item | Quantidade | Unidade | Frequencia | Origem | Status | CriadoEm | CompradoEm | DescricaoNFCe | QtdComprada | ValorUnitario | ChaveNFCe | Setor`
+- É criada em "Nova lista" com **todos os itens do Modelo**, ordenados por setor e item.
 - Ao importar uma nota, a aba da **data da compra** é criada se não existir e os produtos são conciliados:
   itens da lista que casam recebem descrição, quantidade, valor e chave e ficam `Comprado`;
   produtos que não estavam na lista entram como linha nova com `Origem = NFC-e`.
+- O casamento tenta primeiro "todas as palavras do item na descrição" e depois "a primeira palavra"
+  (ex.: `Carne (patinho/alcatra)` ↔ `CARNE PATINHO KG`).
 
-**`Compras`** (uma linha por item da nota):
-`ChaveNFCe | DataEmissao | Estabelecimento | Descricao | Quantidade | Unidade | ValorUnitario | TotalNota`
+**`Compras`** (uma linha por item da nota, na mesma ordem de colunas do Modelo):
+`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra`
+- `Setor` e `Periodicidade` vêm do item da lista conciliado ou, se não houver, do item do Modelo que casar.
 - Valores no formato `NN,NN`, sem `R$` (requer a planilha com localidade Brasil: Arquivo → Configurações).
 - Notas repetidas são detectadas pela chave de 44 dígitos e não são gravadas de novo.
-- Uma aba `Compras` no layout antigo é convertida automaticamente, mantendo os dados.
+- Uma aba `Compras` em layout antigo é convertida automaticamente, mantendo os dados.
 
 **`Log`**: `DataHora | Acao | Chave | Erro | Detalhe | Url` — cada falha de importação da NFC-e
 (SEFAZ fora do ar, HTTP de erro, captcha, layout não reconhecido) com título e trecho da página recebida.
@@ -73,11 +78,11 @@ Todas as chamadas levam `{ "action": "...", "token": "..." }`.
 |---|---|---|
 | `ping` | — | versão e hora |
 | `listarListas` | — | nomes das abas `aaaammdd`, mais recente primeiro |
-| `resumoModelo` | — | quantidade de itens do `modelo` por frequência |
-| `criarLista` | `data` (aaaammdd), `frequencias?` (`["Semanal","Mensal",…]`) | `{nome, criada, adicionados}` |
+| `resumoModelo` | — | total de itens do Modelo, contagem por periodicidade e lista de setores |
+| `criarLista` | `data` (aaaammdd); `frequencias?` opcional para filtrar (o app não usa) | `{nome, criada, adicionados}` |
 | `listarItens` | `lista` | itens da lista |
-| `adicionarItem` | `lista, item: {item, quantidade, unidade?, frequencia?}` | item criado |
-| `atualizarItem` | `lista, id, campos: {status?, item?, quantidade?...}` | — |
+| `adicionarItem` | `lista, item: {item, quantidade, setor?, unidade?, frequencia?}` | item criado |
+| `atualizarItem` | `lista, id, campos: {status?, item?, quantidade?, setor?...}` | — |
 | `removerItem` | `lista, id` | — |
 | `removerComprados` | `lista` | `{removidos}` |
 | `importarNfce` | `url` (link do QR) e/ou `html` (página colada) | nota, itens, `lista`, `marcados`, `foraDaLista` |
@@ -127,9 +132,9 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
 
 ## Como usar
 
-- **Lista**: escolha a lista pela data ou toque em *Nova lista*. Escolha a data e marque quais itens do
-  `modelo` incluir: semanais, quinzenais, mensais ou demanda. Depois adicione itens avulsos, marque o que
-  comprou e remova os comprados.
+- **Lista**: escolha a lista pela data ou toque em *Nova lista* e informe a data. A lista é criada com os
+  itens do Modelo. Ela aparece com as colunas **Setor** e **Item**, em ordem alfabética de setor e depois
+  de item. Adicione itens avulsos (com setor opcional), marque o que comprou e remova os comprados.
 - **Escanear**: toque em *Ler QR Code da nota* e aponte para o QR do cupom. Ou cole o link.
   O resultado aparece na hora e as linhas são gravadas na aba `Compras`.
 - **Compras**: histórico das notas (toque em uma para ver os itens) e o total do mês.
