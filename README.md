@@ -132,9 +132,13 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
 
 ## Como usar
 
-- **Lista**: escolha a lista pela data ou toque em *Nova lista* e informe a data. A lista é criada com os
-  itens do Modelo. Ela aparece com as colunas **Setor** e **Item**, em ordem alfabética de setor e depois
-  de item. Adicione itens avulsos (com setor opcional), marque o que comprou e remova os comprados.
+- **Lista**: mostra a última lista criada ou importada neste aparelho (ou a mais recente). Toque em
+  *Nova lista*, informe a data e marque as periodicidades do Modelo (semanais, quinzenais, mensais,
+  demanda). Com todas marcadas, entram todos os itens do Modelo.
+  - As colunas são **Setor**, **Item** e **Quantidade**, em ordem alfabética de setor e depois de item.
+  - A coluna **Quantidade** é editável: tipo de unidade (`UN` ou `KG`) e o número. A alteração é gravada na
+    hora na aba da lista.
+  - Adicione itens avulsos (setor e unidade opcionais), marque o que comprou e remova os comprados.
 - **Escanear**: toque em *Ler QR Code da nota* e aponte para o QR do cupom. Ou cole o link.
   O resultado aparece na hora e as linhas são gravadas na aba `Compras`.
 - **Compras**: histórico das notas (toque em uma para ver os itens) e o total do mês.

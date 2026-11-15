@@ -248,7 +248,7 @@ function linhaLista_(o, agora) {
   r[0] = Utilities.getUuid();
   r[C.Item - 1] = o.item;
   r[C.Quantidade - 1] = Number(o.quantidade) || 1;
-  r[C.Unidade - 1] = o.unidade || '';
+  r[C.Unidade - 1] = normUn_(o.unidade);
   r[C.Frequencia - 1] = o.frequencia || '';
   r[C.Origem - 1] = o.origem || 'Manual';
   r[C.Status - 1] = o.status || 'Pendente';
@@ -326,6 +326,12 @@ function atualizarItem_(lista, id, campos) {
   const sh = abaLista_(ss_(), lista, false);
   const linha = linhaPorId_(sh, id);
   if (linha < 0) throw new Error('Item não encontrado.');
+  if (campos.quantidade !== undefined) {
+    const q = Number(String(campos.quantidade).replace(',', '.'));
+    if (isNaN(q) || q < 0) throw new Error('Quantidade inválida.');
+    campos.quantidade = q;
+  }
+  if (campos.unidade !== undefined) campos.unidade = normUn_(campos.unidade);
   Object.keys(campos).forEach(k => {
     if (CAMPOS_EDITAVEIS[k]) sh.getRange(linha, CAMPOS_EDITAVEIS[k]).setValue(campos[k]);
   });
@@ -355,6 +361,11 @@ function removerComprados_(lista) {
 }
 
 /* ================================ Modelo ================================ */
+
+/** Só dois tipos de unidade na lista: KG (quilograma) e UN (unidade, padrão para todo o resto). */
+function normUn_(s) {
+  return /^(k|quil)/.test(normalizar_(s)) ? 'KG' : 'UN';
+}
 
 function normFreq_(s) {
   const n = normalizar_(s);

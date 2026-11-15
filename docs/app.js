@@ -87,17 +87,19 @@ function selecionarLista(nome) {
   try { localStorage.setItem(LISTA_KEY, listaAtual); } catch { /* modo privado */ }
 }
 
+/** Mostra a última lista criada/importada neste aparelho; se ela não existir mais, a mais recente. */
 async function carregarListas() {
   try {
     const listas = await api('listarListas');
     if (!listas.includes(listaAtual)) selecionarLista(listas[0] || '');
-    const sel = $('#sel-lista');
-    sel.replaceChildren(...(listas.length
-      ? listas.map(n => el('option', { value: n, textContent: 'Lista de ' + rotuloLista(n), selected: n === listaAtual }))
-      : [el('option', { value: '', textContent: 'Nenhuma lista — crie uma' })]));
+    $('#titulo-lista').textContent = listaAtual ? 'Lista de ' + rotuloLista(listaAtual) : 'Nenhuma lista';
     await carregarLista();
   } catch (e) { toast(e.message, true); }
 }
+
+/** Só dois tipos de unidade: KG (quilograma) e UN (unidade, padrão). */
+const normUn = u => (/^\s*(k|quil)/i.test(String(u || '')) ? 'KG' : 'UN');
+const fmtQtd = q => String(Number(q) || 0).replace('.', ',');
 
 async function carregarLista() {
   if (!listaAtual) { itens = []; renderLista(); return; }
@@ -115,19 +117,30 @@ function renderLista() {
   }
 
   ul.append(el('li', { className: 'cab' },
-    el('span', { className: 'setor', textContent: 'Setor' }), el('span', { textContent: 'Item' })));
+    el('span', { className: 'setor', textContent: 'Setor' }),
+    el('span', { className: 'item-cab', textContent: 'Item' }),
+    el('span', { className: 'quant', textContent: 'Quantidade' }),
+    el('span', { className: 'del-cab' })));
 
   for (const it of ord) {
     const cb = el('input', { type: 'checkbox', checked: comprado(it) });
     cb.addEventListener('change', () => alternar(it, cb.checked));
-    const qtd = it.quantidade && Number(it.quantidade) !== 1 ? `${it.quantidade} ${it.unidade || ''}`.trim() : (it.unidade || '');
+
+    // Coluna Quantidade: tipo de unidade (UN/KG) + quantidade, editáveis.
+    const un = el('select', { title: 'Unidade' },
+      el('option', { value: 'UN', textContent: 'UN' }), el('option', { value: 'KG', textContent: 'KG' }));
+    un.value = normUn(it.unidade);
+    const qt = el('input', { type: 'number', min: '0', step: un.value === 'KG' ? '0.001' : '1',
+                             value: Number(it.quantidade) || 0, title: 'Quantidade', inputMode: 'decimal' });
+    un.addEventListener('change', () => { qt.step = un.value === 'KG' ? '0.001' : '1'; alterarQuantidade(it, qt.value, un.value); });
+    qt.addEventListener('change', () => alterarQuantidade(it, qt.value, un.value));
 
     // Dados da NFC-e conciliada: "1,235 × 6,49 = R$ 8,02"
     let sub = null;
     if (it.chave && it.valorUnitario !== '') {
       const q = Number(it.qtdComprada) || 0, v = Number(it.valorUnitario) || 0;
       const desc = it.descricaoNfce && it.descricaoNfce !== it.item ? it.descricaoNfce + ' · ' : '';
-      sub = el('span', { className: 'sub', textContent: `${desc}${String(q).replace('.', ',')} × ${v.toFixed(2).replace('.', ',')} = ${brl.format(q * v)}` });
+      sub = el('span', { className: 'sub', textContent: `${desc}${fmtQtd(q)} × ${v.toFixed(2).replace('.', ',')} = ${brl.format(q * v)}` });
     }
     const tag = it.origem === 'NFC-e'
       ? el('span', { className: 'tag nfce', textContent: 'fora da lista' })
@@ -139,10 +152,20 @@ function renderLista() {
       el('span', { className: 'setor', textContent: it.setor || '—' }),
       el('label', {}, cb,
         el('span', { className: 'info' }, el('span', { className: 'nome', textContent: it.item }), sub),
-        tag,
-        el('span', { className: 'qtd', textContent: qtd })),
+        tag),
+      el('span', { className: 'quant' }, un, qt),
       del));
   }
+}
+
+async function alterarQuantidade(it, valor, unidade) {
+  const quantidade = Number(String(valor).replace(',', '.'));
+  if (!(quantidade >= 0)) { toast('Quantidade inválida.', true); renderLista(); return; }
+  const antes = { quantidade: it.quantidade, unidade: it.unidade };
+  it.quantidade = quantidade;
+  it.unidade = unidade;
+  try { await api('atualizarItem', { lista: listaAtual, id: it.id, campos: { quantidade, unidade } }); }
+  catch (e) { Object.assign(it, antes); renderLista(); toast(e.message, true); }
 }
 
 /** Ordem alfabética por setor e depois item; itens sem setor ficam no fim. */
@@ -163,7 +186,9 @@ async function carregarModelo() {
   return modeloResumo;
 }
 
-/* ---------- Nova lista (sempre a partir da aba Modelo) ---------- */
+/* ---------- Nova lista (aba Modelo, filtrada por periodicidade) ---------- */
+
+const plural = n => `${n} ${n === 1 ? 'item' : 'itens'}`;
 
 async function abrirNovaLista() {
   const f = $('#form-nova');
@@ -172,14 +197,21 @@ async function abrirNovaLista() {
   $('#cont-modelo').textContent = '';
   f.hidden = false;
   const r = await carregarModelo();
-  if (r) $('#cont-modelo').textContent = ` (${r.total} ${r.total === 1 ? 'item' : 'itens'})`;
+  if (!r) return;
+  $('#cont-modelo').textContent = ` (${plural(r.total)})`;
+  document.querySelectorAll('#form-nova .cont').forEach(s => (s.textContent = `(${plural(r.porFrequencia[s.dataset.freq] || 0)})`));
 }
 
 async function criarLista(ev) {
   ev.preventDefault();
   const data = $('#nova-data').value.replace(/-/g, '');
+  const caixas = [...document.querySelectorAll('#form-nova input[name=freq]')];
+  const marcadas = caixas.filter(c => c.checked).map(c => c.value);
+  if (!marcadas.length) { toast('Marque ao menos uma periodicidade.', true); return; }
+  // Todas marcadas = Modelo inteiro (inclui itens sem periodicidade preenchida).
+  const frequencias = marcadas.length === caixas.length ? [] : marcadas;
   try {
-    const r = await api('criarLista', { data });
+    const r = await api('criarLista', { data, frequencias });
     toast((r.criada ? 'Lista criada' : 'A lista já existia') + ` · ${r.adicionados} item(ns) do Modelo incluído(s).`);
     $('#form-nova').hidden = true;
     selecionarLista(r.nome);
@@ -194,11 +226,12 @@ async function adicionar(ev) {
   if (!nome) return;
   const quantidade = Number($('#novo-qtd').value) || 1;
   const setor = $('#novo-setor').value.trim();
+  const unidade = $('#novo-un').value;
   $('#novo-item').value = '';
   $('#novo-qtd').value = 1;
   $('#novo-item').focus();
   try {
-    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade, setor } });
+    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade, setor, unidade } });
     itens.push(novo);
     renderLista();
   } catch (e) { toast(e.message, true); $('#novo-item').value = nome; }
@@ -390,7 +423,6 @@ function lerParametrosIniciais() {
 /* =============================== Início ============================== */
 
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => mostrarAba(b.dataset.aba)));
-$('#sel-lista').addEventListener('change', ev => { selecionarLista(ev.target.value); carregarLista(); });
 $('#btn-nova').addEventListener('click', abrirNovaLista);
 $('#btn-cancelar-nova').addEventListener('click', () => ($('#form-nova').hidden = true));
 $('#form-nova').addEventListener('submit', criarLista);

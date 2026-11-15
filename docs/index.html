@@ -26,8 +26,8 @@
   <main>
     <!-- LISTA DE COMPRAS -->
     <section id="aba-lista" class="aba">
-      <div class="linha">
-        <select id="sel-lista" aria-label="Lista de compras"></select>
+      <div class="linha topo-lista">
+        <h2 id="titulo-lista">Lista</h2>
         <button id="btn-nova" type="button" class="secundario">Nova lista</button>
       </div>
 
@@ -35,8 +35,15 @@
         <label>Data da lista
           <input id="nova-data" type="date" required>
         </label>
-        <p class="dica">A lista é criada com os itens da aba <strong>Modelo</strong><span id="cont-modelo"></span>,
-          ordenados por setor e item. Se a lista da data já existir, só os itens que faltam são incluídos.</p>
+        <fieldset>
+          <legend>Itens da aba Modelo por periodicidade</legend>
+          <label class="check"><input type="checkbox" name="freq" value="Semanal" checked> Semanais <span class="cont" data-freq="Semanal"></span></label>
+          <label class="check"><input type="checkbox" name="freq" value="Quinzenal" checked> Quinzenais <span class="cont" data-freq="Quinzenal"></span></label>
+          <label class="check"><input type="checkbox" name="freq" value="Mensal" checked> Mensais <span class="cont" data-freq="Mensal"></span></label>
+          <label class="check"><input type="checkbox" name="freq" value="Demanda" checked> Demanda <span class="cont" data-freq="Demanda"></span></label>
+        </fieldset>
+        <p class="dica">Com todas marcadas, entram todos os itens do Modelo<span id="cont-modelo"></span>,
+          inclusive os sem periodicidade. Se a lista da data já existir, só os itens que faltam são incluídos.</p>
         <div class="linha">
           <button type="submit">Criar lista</button>
           <button type="button" id="btn-cancelar-nova" class="secundario">Cancelar</button>
@@ -47,6 +54,10 @@
         <input id="novo-item" placeholder="Adicionar item (ex.: arroz)" required autocomplete="off">
         <input id="novo-setor" list="lista-setores" placeholder="Setor" aria-label="Setor" autocomplete="off">
         <datalist id="lista-setores"></datalist>
+        <select id="novo-un" aria-label="Unidade">
+          <option value="UN">UN</option>
+          <option value="KG">KG</option>
+        </select>
         <input id="novo-qtd" type="number" min="0" step="any" value="1" aria-label="Quantidade">
         <button type="submit">Adicionar</button>
       </form>

@@ -98,6 +98,20 @@ label.check input { width: 20px; height: 20px; accent-color: var(--primaria); }
 .lista li.cab .setor { font-size: .75rem; }
 @media (max-width: 420px) { .lista .setor { width: 72px; } }
 
+.topo-lista { align-items: center; }
+#titulo-lista { flex: 1; margin: 0; font-size: 1.1rem; }
+#novo-un { width: 70px; flex: none; }
+
+/* Lista: todo o texto com 14px */
+#lista, #lista * { font-size: 14px; }
+.lista .quant { display: flex; gap: 4px; flex: none; align-items: center; }
+.lista .quant select, .lista .quant input { padding: 4px 6px; border-radius: 6px; }
+.lista .quant select { width: 58px; }
+.lista .quant input { width: 70px; text-align: right; }
+.lista li.cab .quant { width: 132px; justify-content: flex-start; }
+.lista li.cab .item-cab { flex: 1; }
+.lista li.cab .del-cab { width: 30px; flex: none; }
+
 .lista { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: var(--raio); border: 1px solid var(--borda); }
 .lista li { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--borda); }
 .lista li:first-child { border-top: 0; }
