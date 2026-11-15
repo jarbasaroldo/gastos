@@ -25,6 +25,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -57,8 +58,8 @@ nav button.ativa { color: var(--primaria); border-bottom-color: var(--primaria);
 main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .aba > * + * { margin-top: 12px; }
 
-input, textarea, button { font: inherit; }
-input, textarea {
+input, textarea, button, select { font: inherit; }
+input, textarea, select {
   width: 100%; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio);
   background: var(--card); color: var(--texto);
 }
@@ -73,7 +74,19 @@ label input { margin-top: 4px; }
 #form-config > * + * { margin-top: 12px; }
 
 .linha { display: flex; gap: 8px; }
-.linha input:first-child { flex: 1; }
+.linha input:first-child, .linha select:first-child { flex: 1; min-width: 0; }
+
+.painel { background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px; }
+.painel > * + * { margin-top: 10px; }
+fieldset { border: 1px solid var(--borda); border-radius: var(--raio); margin: 0; padding: 8px 12px; }
+legend { color: var(--suave); font-size: .9rem; padding: 0 4px; }
+label.check { display: flex; align-items: center; gap: 8px; padding: 6px 0; color: var(--texto); font-size: 1rem; cursor: pointer; }
+label.check input { width: 20px; height: 20px; accent-color: var(--primaria); }
+.cont { color: var(--suave); font-size: .85rem; }
+.tag { font-size: .75rem; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--borda); color: var(--suave); white-space: nowrap; }
+.tag.nfce { border-color: var(--primaria); color: var(--primaria); }
+.lista .info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.lista .sub { color: var(--suave); font-size: .8rem; overflow-wrap: anywhere; }
 #novo-qtd { width: 72px; flex: none; }
 
 .lista { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: var(--raio); border: 1px solid var(--borda); }

@@ -68,17 +68,40 @@ function mostrarAba(nome) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('ativa', b.dataset.aba === nome));
   document.querySelectorAll('.aba').forEach(s => (s.hidden = s.id !== 'aba-' + nome));
   if (nome !== 'escanear') pararCamera();
-  if (nome === 'lista' && cfg.url) carregarLista();
+  if (nome === 'lista' && cfg.url) carregarListas();
   if (nome === 'compras' && cfg.url) carregarCompras();
   if (nome === 'config') { $('#cfg-url').value = cfg.url || ''; $('#cfg-token').value = cfg.token || ''; }
 }
 
 /* ========================= Lista de compras ========================= */
 
+const LISTA_KEY = 'gastos.lista';
 let itens = [];
+let listaAtual = (() => { try { return localStorage.getItem(LISTA_KEY) || ''; } catch { return ''; } })();
+
+/** "20261115" -> "15/11/2026" */
+const rotuloLista = n => `${n.slice(6, 8)}/${n.slice(4, 6)}/${n.slice(0, 4)}`;
+
+function selecionarLista(nome) {
+  listaAtual = nome || '';
+  try { localStorage.setItem(LISTA_KEY, listaAtual); } catch { /* modo privado */ }
+}
+
+async function carregarListas() {
+  try {
+    const listas = await api('listarListas');
+    if (!listas.includes(listaAtual)) selecionarLista(listas[0] || '');
+    const sel = $('#sel-lista');
+    sel.replaceChildren(...(listas.length
+      ? listas.map(n => el('option', { value: n, textContent: 'Lista de ' + rotuloLista(n), selected: n === listaAtual }))
+      : [el('option', { value: '', textContent: 'Nenhuma lista — crie uma' })]));
+    await carregarLista();
+  } catch (e) { toast(e.message, true); }
+}
 
 async function carregarLista() {
-  try { itens = await api('listarItens'); renderLista(); } catch (e) { toast(e.message, true); }
+  if (!listaAtual) { itens = []; renderLista(); return; }
+  try { itens = await api('listarItens', { lista: listaAtual }); renderLista(); } catch (e) { toast(e.message, true); }
 }
 
 function renderLista() {
@@ -87,22 +110,71 @@ function renderLista() {
   const comprado = it => it.status === 'Comprado';
   const ord = [...itens].sort((a, b) =>
     comprado(a) - comprado(b) || String(a.item).localeCompare(String(b.item), 'pt-BR'));
-  if (!ord.length) { ul.append(el('li', { className: 'vazio', textContent: 'Lista vazia' })); return; }
+  if (!ord.length) {
+    ul.append(el('li', { className: 'vazio', textContent: listaAtual ? 'Lista vazia' : 'Crie uma lista em "Nova lista"' }));
+    return;
+  }
 
   for (const it of ord) {
     const cb = el('input', { type: 'checkbox', checked: comprado(it) });
     cb.addEventListener('change', () => alternar(it, cb.checked));
     const qtd = it.quantidade && Number(it.quantidade) !== 1 ? `${it.quantidade} ${it.unidade || ''}`.trim() : (it.unidade || '');
+
+    // Dados da NFC-e conciliada: "1,235 × 6,49 = R$ 8,02"
+    let sub = null;
+    if (it.chave && it.valorUnitario !== '') {
+      const q = Number(it.qtdComprada) || 0, v = Number(it.valorUnitario) || 0;
+      const desc = it.descricaoNfce && it.descricaoNfce !== it.item ? it.descricaoNfce + ' · ' : '';
+      sub = el('span', { className: 'sub', textContent: `${desc}${String(q).replace('.', ',')} × ${v.toFixed(2).replace('.', ',')} = ${brl.format(q * v)}` });
+    }
+    const tag = it.origem === 'NFC-e'
+      ? el('span', { className: 'tag nfce', textContent: 'fora da lista' })
+      : (it.frequencia ? el('span', { className: 'tag', textContent: it.frequencia }) : null);
+
     const del = el('button', { className: 'del', textContent: '✕', title: 'Remover', type: 'button' });
     del.addEventListener('click', () => remover(it));
     ul.append(el('li', { className: comprado(it) ? 'feito' : '' },
-      el('label', {}, cb, el('span', { className: 'nome', textContent: it.item }), el('span', { className: 'qtd', textContent: qtd })),
+      el('label', {}, cb,
+        el('span', { className: 'info' }, el('span', { className: 'nome', textContent: it.item }), sub),
+        tag,
+        el('span', { className: 'qtd', textContent: qtd })),
       del));
   }
 }
 
+/* ---------- Nova lista (a partir da aba "modelo") ---------- */
+
+async function abrirNovaLista() {
+  const f = $('#form-nova');
+  if (!f.hidden) { f.hidden = true; return; }
+  $('#nova-data').value = new Date().toLocaleDateString('sv-SE'); // aaaa-mm-dd no fuso local
+  f.hidden = false;
+  try {
+    const r = await api('resumoModelo');
+    document.querySelectorAll('#form-nova .cont').forEach(s => {
+      const n = r.porFrequencia[s.dataset.freq] || 0;
+      s.textContent = `(${n} ${n === 1 ? 'item' : 'itens'})`;
+    });
+  } catch { /* contagem é opcional */ }
+}
+
+async function criarLista(ev) {
+  ev.preventDefault();
+  const data = $('#nova-data').value.replace(/-/g, '');
+  const frequencias = [...document.querySelectorAll('#form-nova input[name=freq]:checked')].map(c => c.value);
+  try {
+    const r = await api('criarLista', { data, frequencias });
+    toast((r.criada ? 'Lista criada' : 'A lista já existia') +
+      (frequencias.length ? ` · ${r.adicionados} item(ns) do modelo incluído(s)` : '') + '.');
+    $('#form-nova').hidden = true;
+    selecionarLista(r.nome);
+    carregarListas();
+  } catch (e) { toast(e.message, true); }
+}
+
 async function adicionar(ev) {
   ev.preventDefault();
+  if (!listaAtual) { toast('Crie ou escolha uma lista primeiro.', true); return; }
   const nome = $('#novo-item').value.trim();
   if (!nome) return;
   const quantidade = Number($('#novo-qtd').value) || 1;
@@ -110,7 +182,7 @@ async function adicionar(ev) {
   $('#novo-qtd').value = 1;
   $('#novo-item').focus();
   try {
-    const novo = await api('adicionarItem', { item: { item: nome, quantidade } });
+    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade } });
     itens.push(novo);
     renderLista();
   } catch (e) { toast(e.message, true); $('#novo-item').value = nome; }
@@ -120,7 +192,7 @@ async function alternar(it, marcado) {
   const anterior = it.status;
   it.status = marcado ? 'Comprado' : 'Pendente';
   renderLista();
-  try { await api('atualizarItem', { id: it.id, campos: { status: it.status } }); }
+  try { await api('atualizarItem', { lista: listaAtual, id: it.id, campos: { status: it.status } }); }
   catch (e) { it.status = anterior; renderLista(); toast(e.message, true); }
 }
 
@@ -128,7 +200,7 @@ async function remover(it) {
   const copia = itens;
   itens = itens.filter(x => x.id !== it.id);
   renderLista();
-  try { await api('removerItem', { id: it.id }); }
+  try { await api('removerItem', { lista: listaAtual, id: it.id }); }
   catch (e) { itens = copia; renderLista(); toast(e.message, true); }
 }
 
@@ -136,7 +208,7 @@ async function limparComprados() {
   if (!itens.some(i => i.status === 'Comprado')) return toast('Nenhum item comprado.');
   if (!confirm('Remover todos os itens marcados como comprados?')) return;
   try {
-    const r = await api('removerComprados');
+    const r = await api('removerComprados', { lista: listaAtual });
     toast(`${r.removidos} item(ns) removido(s).`);
     carregarLista();
   } catch (e) { toast(e.message, true); }
@@ -187,8 +259,8 @@ async function importar(url, html) {
   r.replaceChildren(el('p', { className: 'dica', textContent: 'Consultando a nota na SEFAZ…' }));
   try {
     const d = await api('importarNfce', { url, html });
+    if (d.lista) selecionarLista(d.lista); // a aba "Lista" passa a mostrar a lista do dia da compra
     renderResultado(d);
-    if (d.marcados && d.marcados.length) carregarLista();
   } catch (e) {
     r.replaceChildren();
     toast(e.message, true);
@@ -199,8 +271,10 @@ function renderResultado(d) {
   const n = d.nota;
   const aviso = d.duplicada
     ? el('p', { className: 'aviso', textContent: 'Esta nota já havia sido importada — nada foi gravado de novo.' })
-    : el('p', { className: 'aviso ok', textContent: `Nota importada: ${n.qtdItens} item(ns) gravado(s) na aba Compras.` +
-        (d.marcados.length ? ` Marcados na lista: ${d.marcados.join(', ')}.` : '') });
+    : el('p', { className: 'aviso ok', textContent:
+        `Nota importada: ${n.qtdItens} item(ns) gravado(s) na aba Compras e copiado(s) para a lista ${rotuloLista(d.lista)}.` +
+        (d.marcados.length ? ` Conciliados com a lista: ${d.marcados.join(', ')}.` : '') +
+        (d.foraDaLista ? ` ${d.foraDaLista} item(ns) fora da lista.` : '') });
 
   const tbody = el('tbody');
   for (const it of d.itens) {
@@ -300,6 +374,10 @@ function lerParametrosIniciais() {
 /* =============================== Início ============================== */
 
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => mostrarAba(b.dataset.aba)));
+$('#sel-lista').addEventListener('change', ev => { selecionarLista(ev.target.value); carregarLista(); });
+$('#btn-nova').addEventListener('click', abrirNovaLista);
+$('#btn-cancelar-nova').addEventListener('click', () => ($('#form-nova').hidden = true));
+$('#form-nova').addEventListener('submit', criarLista);
 $('#form-item').addEventListener('submit', adicionar);
 $('#btn-limpar').addEventListener('click', limparComprados);
 $('#btn-camera').addEventListener('click', alternarCamera);
