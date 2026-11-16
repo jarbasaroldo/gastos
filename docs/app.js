@@ -311,19 +311,81 @@ async function pararCamera() {
   $('#btn-camera').textContent = 'Ler QR Code da nota';
 }
 
+/* ---------- Portais que recusam a consulta automática (ex.: SEFAZ-SP) ---------- */
+
+const BLOQ_KEY = 'gastos.portaisBloqueados';
+const hostDe = u => { try { return new URL(u).hostname; } catch { return ''; } };
+function portaisBloqueados() { try { return JSON.parse(localStorage.getItem(BLOQ_KEY)) || []; } catch { return []; } }
+function marcarBloqueado(url) {
+  const h = hostDe(url);
+  if (!h) return;
+  const lista = portaisBloqueados();
+  if (!lista.includes(h)) { lista.push(h); try { localStorage.setItem(BLOQ_KEY, JSON.stringify(lista)); } catch { /* ok */ } }
+}
+
+/** Quando a SEFAZ não deixa o servidor consultar: o usuário abre a nota e usa o favorito "Enviar para o Gastos". */
+function renderAbrirNota(url, motivo) {
+  const abrir = el('a', { className: 'botao', href: url, textContent: 'Abrir a nota no site da SEFAZ' });
+  const config = el('a', { href: '#', textContent: 'Como instalar o favorito' });
+  config.addEventListener('click', ev => { ev.preventDefault(); mostrarAba('config'); $('#favorito').scrollIntoView(); });
+  $('#resultado').replaceChildren(el('div', { className: 'aviso' },
+    el('p', { textContent: motivo }),
+    el('p', { className: 'dica', textContent: 'Toque no botão abaixo. Quando a nota abrir, toque na barra de endereço, ' +
+      'digite "Gastos" e escolha o favorito "Enviar para o Gastos". A nota volta para cá e é importada.' }),
+    abrir, el('p', { className: 'dica' }, config)));
+}
+
 async function importar(url, html) {
   if (!html && !/^https?:\/\//i.test(url)) {
     return toast('Esse QR Code não parece ser de uma NFC-e (esperado um link http).', true);
   }
+  // Portal que já recusou antes: nem tenta pelo servidor, vai direto para o plano B.
+  if (!html && portaisBloqueados().includes(hostDe(url))) {
+    return renderAbrirNota(url, 'Este portal da SEFAZ só pode ser consultado pelo seu navegador.');
+  }
   const r = $('#resultado');
-  r.replaceChildren(el('p', { className: 'dica', textContent: 'Consultando a nota na SEFAZ…' }));
+  r.replaceChildren(el('p', { className: 'dica', textContent: html ? 'Importando a nota…' : 'Consultando a nota na SEFAZ…' }));
   try {
     const d = await api('importarNfce', { url, html });
     renderResultado(d);
   } catch (e) {
+    if (!html && /recusou a conex|Request Rejected|N[ãa]o foi poss[íi]vel acessar o portal/i.test(e.message)) {
+      marcarBloqueado(url);
+      renderAbrirNota(url, 'A SEFAZ não permite que o app consulte esta nota sozinho.');
+      return;
+    }
     r.replaceChildren();
     toast(e.message, true);
   }
+}
+
+/* ---------- Favorito "Enviar para o Gastos" ---------- */
+
+/**
+ * Código do favorito (bookmarklet). Roda na página da nota, no navegador do usuário: remove scripts,
+ * estilos e imagens e abre o app levando a página no fragmento do link (#nfce=…), que não vai a servidor algum.
+ */
+function codigoFavorito() {
+  const app = location.origin + location.pathname;
+  const js = '(function(){' +
+    'if(!/\\.gov\\.br$/i.test(location.hostname)){alert("Abra primeiro a página da nota fiscal no site da SEFAZ.");return}' +
+    'var c=document.documentElement.cloneNode(true);' +
+    'c.querySelectorAll("script,style,link,img,svg,iframe,noscript,input,meta,button").forEach(function(e){e.remove()});' +
+    'var d=JSON.stringify({url:location.href,html:c.outerHTML.replace(/\\s+/g," ")});' +
+    'location.href=' + JSON.stringify(app) + '+"#nfce="+encodeURIComponent(d)' +
+    '})()';
+  return 'javascript:' + encodeURIComponent(js);
+}
+
+function prepararFavorito() {
+  const codigo = codigoFavorito();
+  $('#favorito-codigo').value = codigo;
+  $('#favorito-link').href = codigo;
+}
+
+async function copiarFavorito() {
+  try { await navigator.clipboard.writeText($('#favorito-codigo').value); toast('Código do favorito copiado.'); }
+  catch { $('#favorito-codigo').select(); toast('Selecione o texto e copie manualmente.', true); }
 }
 
 function renderResultado(d) {
@@ -409,8 +471,23 @@ async function copiarLinkConfig() {
   catch { prompt('Copie o link:', link); }
 }
 
-/** Aceita #cfg=<base64> (configuração) e ?nfce=<link> (importação direta). */
+/**
+ * Aceita #nfce=<json> (página da nota enviada pelo favorito), #cfg=<base64> (configuração)
+ * e ?nfce=<link> (importação direta).
+ */
 function lerParametrosIniciais() {
+  const f = location.hash.match(/^#nfce=([\s\S]+)$/);
+  if (f) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      const d = JSON.parse(decodeURIComponent(f[1]));
+      if (typeof d.html !== 'string' || !/^https:\/\/[^/?#]+\.gov\.br[/?#]/i.test(String(d.url))) throw new Error();
+      mostrarAba('escanear');
+      $('#link-nfce').value = d.url;
+      importar(d.url, d.html);
+      return true;
+    } catch { toast('Não consegui ler a nota enviada pelo favorito.', true); }
+  }
   const m = location.hash.match(/^#cfg=(.+)$/);
   if (m) {
     try {
@@ -447,5 +524,7 @@ $('#btn-html').addEventListener('click', () => {
 });
 $('#form-config').addEventListener('submit', salvarConfig);
 $('#btn-link-cfg').addEventListener('click', copiarLinkConfig);
+$('#btn-copiar-favorito').addEventListener('click', copiarFavorito);
+prepararFavorito();
 
 if (!lerParametrosIniciais()) mostrarAba(cfg.url && cfg.token ? 'lista' : 'config');

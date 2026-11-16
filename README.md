@@ -162,9 +162,16 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
   (`#tabResult`, `txtTit`, `Rqtd`, `RvlUnit`, `totalNumb`), usado pela maioria das SEFAZ (SP, RS/SVRS, PR, BA,
   GO, PE, SC, DF, ES…). Estados com página própria, como MG ou RJ, podem precisar de um parser extra:
   escreva uma função `(html, url) => nota` e adicione-a ao array `PARSERS` em `Code.gs`.
-- **Bloqueio ou captcha da SEFAZ.** O Apps Script roda em servidores do Google (fora do Brasil). Alguns
-  portais bloqueiam esses acessos ou pedem captcha. Nesse caso, use *Importação manual*: abra a nota no
-  navegador, copie o código-fonte da página e cole no app.
+- **Bloqueio da SEFAZ (ex.: São Paulo).** O Apps Script roda em servidores do Google, fora do Brasil, e
+  algumas SEFAZ recusam esses acessos ou bloqueiam consultas automatizadas. Para elas, a consulta é feita
+  pelo **navegador do usuário**, com o favorito *Enviar para o Gastos*:
+  1. Instale o favorito uma vez por aparelho (tela **Config** do app, com passo a passo).
+  2. Leia o QR Code; se a SEFAZ recusar, o app mostra o botão *Abrir a nota no site da SEFAZ*.
+  3. Com a nota aberta, toque na barra de endereço, digite `Gastos` e escolha o favorito.
+     A página da nota volta para o app (dentro do próprio link, depois do `#`, sem passar por outro
+     servidor) e é importada normalmente.
+  O app lembra quais portais recusaram e, nas próximas leituras, mostra o botão direto.
+  A *Importação manual* (colar o HTML) continua disponível.
 - **Associação lista ↔ nota** é aproximada: o item é marcado quando todas as palavras do nome (3 letras ou
   mais), ou ao menos a primeira, aparecem na descrição do produto. Descrições muito abreviadas
   ("ARR TJ 5K") podem não casar.

@@ -205,6 +205,20 @@ details > * + * { margin-top: 8px; }
 summary { cursor: pointer; color: var(--suave); min-height: 32px; }
 .aviso { padding: 10px 12px; border-radius: var(--raio); background: var(--card); border: 1px solid var(--borda); }
 .aviso.ok { border-color: var(--ok); }
+.aviso > * + * { margin-top: 8px; }
+.aviso p { margin: 0; }
+a.botao {
+  display: flex; align-items: center; justify-content: center; min-height: var(--toque);
+  padding: 8px 14px; border-radius: var(--raio); background: var(--primaria); color: var(--primaria-texto);
+  text-decoration: none; font-weight: 600;
+}
+#favorito h3 { margin: 0; font-size: 1.05em; }
+#favorito p { margin: 0; }
+#favorito textarea { font-family: ui-monospace, monospace; font-size: .75em; word-break: break-all; }
+#favorito code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.passos { margin: 0; padding-left: 1.3em; }
+.passos li + li { margin-top: 4px; }
+a { color: var(--primaria); }
 
 /* ------------------------------- Avisos -------------------------------- */
 #toast {

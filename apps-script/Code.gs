@@ -676,21 +676,38 @@ function chaveExiste_(sh, chave) {
   return sh.getRange(2, 1, n - 1, 1).getValues().some(r => String(r[0]) === chave);
 }
 
+/**
+ * Codifica caracteres que o UrlFetchApp não aceita crus (ex.: "|" do QR Code da NFC-e de SP vira %7C,
+ * espaço vira %20). Caracteres válidos de URL e sequências %XX já codificadas são mantidos.
+ */
+function urlSegura_(url) {
+  return String(url || '').trim()
+    .replace(/%(?![0-9A-Fa-f]{2})/g, '%25')
+    .replace(/[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/g, c => encodeURIComponent(c));
+}
+
 function baixar_(url) {
   let resp;
   try {
-    resp = UrlFetchApp.fetch(url, {
+    resp = UrlFetchApp.fetch(urlSegura_(url), {
       followRedirects: true,
       muteHttpExceptions: true,
       validateHttpsCertificates: false, // alguns portais SEFAZ têm cadeia de certificados incompleta
+      // Cabeçalhos de um navegador comum: sem "Accept" o firewall da SEFAZ-SP responde "Request Rejected".
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Upgrade-Insecure-Requests': '1',
       },
     });
   } catch (err) {
-    const e = new Error('Não foi possível acessar o portal da SEFAZ.');
-    e.detalhe = String(err && err.message || err);
+    const msg = String(err && err.message || err);
+    const e = new Error(/n[ãa]o dispon[íi]vel|unavailable/i.test(msg)
+      ? 'A SEFAZ recusou a conexão vinda dos servidores do Google (fora do Brasil). ' +
+        'Use a importação manual (HTML): abra o link da nota no navegador e cole o código-fonte da página no app.'
+      : 'Não foi possível acessar o portal da SEFAZ.');
+    e.detalhe = msg;
     throw e;
   }
   const codigo = resp.getResponseCode();

@@ -7,9 +7,9 @@
   <title>Controle de Gastos</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- ?v=… força o navegador a baixar a versão nova (troque o número a cada publicação) -->
-  <link rel="stylesheet" href="style.css?v=20261116-2">
+  <link rel="stylesheet" href="style.css?v=20261116-3">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
-  <script src="app.js?v=20261116-2" defer></script>
+  <script src="app.js?v=20261116-3" defer></script>
 </head>
 <body>
   <header>
@@ -103,6 +103,26 @@
         <p class="dica">O link de configuração preenche URL e token em outro aparelho (ex.: celular).
           Ele contém o token — compartilhe só com quem pode alterar sua planilha.</p>
       </form>
+
+      <section id="favorito" class="painel">
+        <h3>Favorito "Enviar para o Gastos"</h3>
+        <p class="dica">Algumas SEFAZ (como a de SP) não deixam o app consultar a nota sozinho. Com este favorito,
+          você abre a nota no navegador e envia a página para o app com um toque.</p>
+        <textarea id="favorito-codigo" rows="3" readonly></textarea>
+        <button type="button" id="btn-copiar-favorito">Copiar código do favorito</button>
+        <p><strong>Instalar no Chrome do Android</strong> (uma vez em cada aparelho):</p>
+        <ol class="passos">
+          <li>Toque em <em>Copiar código do favorito</em>.</li>
+          <li>Nesta página, abra o menu <strong>⋮</strong> e toque na estrela <strong>☆</strong> para criar um favorito.</li>
+          <li>Toque em <em>Editar</em>. Em <strong>Nome</strong>, escreva <code>Enviar para o Gastos</code>;
+            em <strong>URL</strong>, apague o que estiver lá e cole o código. Salve.</li>
+        </ol>
+        <p><strong>Usar:</strong> leia o QR Code na aba Escanear e toque em <em>Abrir a nota</em>. Com a nota aberta,
+          toque na barra de endereço, digite <code>Gastos</code> e toque na sugestão
+          <em>Enviar para o Gastos</em> (com ícone de estrela).</p>
+        <p class="dica">No computador: arraste este link para a barra de favoritos →
+          <a id="favorito-link" href="#">Enviar para o Gastos</a></p>
+      </section>
     </section>
   </main>
 
