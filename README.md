@@ -73,8 +73,20 @@ docs/                # SPA publicada no GitHub Pages
   `aaaammdd_antiga` e uma nova é criada.
 
 **`Compras`** (uma linha por item da nota, na mesma ordem de colunas do Modelo):
-`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra`
-- `Setor` e `Periodicidade` vêm do item da lista conciliado ou, se não houver, do item do Modelo que casar.
+`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra | NCM | EAN`
+- `Setor`, nesta ordem:
+  1. **pelo NCM, com o que o histórico ensinou**: se o mesmo NCM já aparece na aba `Compras` com um setor,
+     usa o mais recente. Para corrigir, edite o `Setor` daquele item em `Compras`; as próximas compras com
+     o mesmo NCM seguem a correção;
+  2. **pela tabela de NCM** (`SETOR_POR_NCM` em `Code.gs`, ex.: `0401` leite → Lacticínio, `0402` leite em
+     pó → Matinal, `02` carnes → Açougue), usando só setores que existem no Modelo;
+  3. pelo item da Lista conciliado ou, se não houver, pelo item do Modelo com nome parecido.
+- `Periodicidade` vem do item da Lista conciliado ou do item do Modelo com nome parecido.
+- O setor pelo NCM também evita casamentos errados com a Lista: um produto cujo NCM indica "Lacticínio"
+  não é ligado a um item da Lista do setor "Matinal".
+- `NCM` (classificação fiscal, 8 dígitos) e `EAN` (código de barras) só existem na **tela completa** da nota
+  ("Visualizar em Abas" no portal da SEFAZ-SP). Importando pela tela resumida (DANFE), ficam vazios.
+  Produtos sem código de barras (granel, açougue) vêm sem EAN. Os dois são gravados como texto.
 - Valores no formato `NN,NN`, sem `R$` (requer a planilha com localidade Brasil: Arquivo → Configurações).
 - Notas repetidas são detectadas pela chave de 44 dígitos e não são gravadas de novo.
 - Uma aba `Compras` em layout antigo é convertida automaticamente, mantendo os dados.
@@ -167,7 +179,8 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
   pelo **navegador do usuário**, com o favorito *Enviar para o Gastos*:
   1. Instale o favorito uma vez por aparelho (tela **Config** do app, com passo a passo).
   2. Leia o QR Code; se a SEFAZ recusar, o app mostra o botão *Abrir a nota no site da SEFAZ*.
-  3. Com a nota aberta, toque na barra de endereço, digite `Gastos` e escolha o favorito.
+  3. Com a nota aberta, toque em *Visualizar em Abas* (para trazer NCM e EAN), depois na barra de
+     endereço, digite `Gastos` e escolha o favorito.
      A página da nota volta para o app (dentro do próprio link, depois do `#`, sem passar por outro
      servidor) e é importada normalmente.
   O app lembra quais portais recusaram e, nas próximas leituras, mostra o botão direto.

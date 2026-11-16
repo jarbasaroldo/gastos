@@ -26,8 +26,9 @@ const ABAS = {
   // Mesma ordem de colunas da aba Modelo (a coluna A guarda a chave da nota).
   COMPRAS: {
     nome: NOME.COMPRAS,
+    // NCM e EAN no fim: só vêm preenchidos quando a nota é importada pela tela completa ("Visualizar em Abas").
     cab: ['ChaveNFCe', 'Item', 'Periodicidade', 'Setor', 'Unidade', 'Quantidade',
-          'Valor Unitário', 'Valor Total', 'Local', 'Data Compra'],
+          'Valor Unitário', 'Valor Total', 'Local', 'Data Compra', 'NCM', 'EAN'],
   },
   LOG: { nome: NOME.LOG, cab: ['DataHora', 'Acao', 'Chave', 'Erro', 'Detalhe', 'Url'] },
 };
@@ -42,6 +43,39 @@ const CABS_COMPRAS_ANTIGOS = [
 ];
 /** Layout da primeira versão da aba Lista, convertido automaticamente. */
 const CAB_LISTA_V1 = ['ID', 'Item', 'Quantidade', 'Unidade', 'Categoria', 'Status', 'CriadoEm', 'CompradoEm'];
+
+/**
+ * Setor a partir do NCM (classificação fiscal do produto), nos nomes de setor da aba Modelo.
+ * Vale o prefixo mais longo. Só é usado se o setor existir no Modelo (ou se o Modelo não tiver setores).
+ * Antes desta tabela, vale o que o histórico da aba Compras ensinou para o mesmo NCM.
+ */
+const SETOR_POR_NCM = {
+  // Carnes, aves, peixes
+  '02': 'Açougue', '0302': 'Açougue', '0303': 'Açougue', '0304': 'Açougue', '0306': 'Açougue', '0307': 'Açougue',
+  '1601': 'Açougue', '1602': 'Açougue',
+  // Leite e derivados
+  '0401': 'Lacticínio', '0402': 'Matinal', '0403': 'Geladeira', '0404': 'Geladeira', '0405': 'Geladeira',
+  '0406': 'Geladeira', '0407': 'Feira',
+  // Hortifrúti
+  '07': 'Feira', '0710': 'Geladeira', '0713': 'Grãos', '08': 'Feira', '0811': 'Geladeira',
+  // Café da manhã
+  '0901': 'Matinal', '0902': 'Matinal', '1901': 'Matinal', '1904': 'Matinal', '1905': 'Matinal', '2101': 'Matinal',
+  // Grãos e mercearia seca
+  '10': 'Grãos', '1101': 'Grãos', '1102': 'Grãos', '1103': 'Grãos', '1104': 'Grãos', '1106': 'Grãos',
+  '1507': 'Grãos', '1508': 'Grãos', '1509': 'Grãos', '1512': 'Grãos', '1517': 'Grãos', '1701': 'Grãos',
+  '1902': 'Grãos', '2103': 'Grãos', '2104': 'Grãos', '2501': 'Grãos',
+  // Doces e sorvetes
+  '1704': 'Doces', '1806': 'Doces', '2006': 'Doces', '2007': 'Doces', '2008': 'Doces', '2105': 'Geladeira',
+  // Bebidas
+  '2009': 'Bebidas', '2201': 'Bebidas', '2202': 'Bebidas', '2203': 'Bebidas', '2204': 'Bebidas', '2208': 'Bebidas',
+  // Higiene
+  '3303': 'Higiene', '3304': 'Higiene', '3305': 'Higiene', '3306': 'Higiene', '3307': 'Higiene', '3401': 'Higiene',
+  '4818': 'Higiene', '9603': 'Higiene', '9619': 'Higiene',
+  // Limpeza
+  '3402': 'Limpeza', '3405': 'Limpeza', '3808': 'Limpeza', '2828': 'Limpeza', '5603': 'Limpeza', '6805': 'Limpeza',
+  // Utilidades
+  '3923': 'Utilidades', '3924': 'Utilidades', '4202': 'Utilidades', '6305': 'Utilidades', '8506': 'Utilidades',
+};
 
 const PALAVRAS_IGNORADAS = { com: 1, sem: 1, para: 1, tipo: 1, und: 1, unidade: 1, pct: 1, pacote: 1 };
 const FREQUENCIAS = ['Semanal', 'Quinzenal', 'Mensal', 'Demanda'];
@@ -519,6 +553,35 @@ function refsModelo_(modelo) {
   return modelo.map(m => ({ item: m.item, setor: m.setor, periodicidade: m.periodicidade }));
 }
 
+/** NCM → setor aprendido da aba Compras (vale a ocorrência mais recente, inclusive correções manuais). */
+function setoresAprendidos_(shCompras) {
+  const out = {};
+  dados_(shCompras, ABAS.COMPRAS.cab.length).forEach(r => {
+    const ncm = String(r[CC.NCM - 1] || '').replace(/\D/g, '');
+    const setor = String(r[CC.Setor - 1] || '').trim();
+    if (ncm && setor) out[ncm] = setor;
+  });
+  return out;
+}
+
+/**
+ * Setor pelo NCM: 1º o que o histórico ensinou para o mesmo NCM; 2º a tabela SETOR_POR_NCM (prefixo mais
+ * longo), desde que o setor exista no Modelo. Devolve '' se não souber.
+ */
+function setorPorNcm_(ncm, aprendido, setoresModelo) {
+  ncm = String(ncm || '').replace(/\D/g, '');
+  if (!ncm) return '';
+  if (aprendido[ncm]) return aprendido[ncm];
+  for (let n = Math.min(ncm.length, 8); n >= 2; n--) {
+    const s = SETOR_POR_NCM[ncm.slice(0, n)];
+    if (!s) continue;
+    if (!setoresModelo.length) return s;
+    const igual = setoresModelo.filter(x => normalizar_(x) === normalizar_(s))[0];
+    return igual || ''; // setor da tabela não existe no Modelo: não inventa setor novo
+  }
+  return '';
+}
+
 /** Setor e periodicidade de um produto da nota, pelo item do Modelo que melhor casa com ele. */
 function classificar_(descricao, refs) {
   const d = ' ' + normalizar_(descricao) + ' ';
@@ -569,12 +632,19 @@ function importar_(url, htmlManual) {
     return { duplicada: true, nota: resumoNota_(nota), itens: nota.itens, marcados: [], foraDaLista: 0, aba: null };
   }
 
-  const conc = conciliarLista_(ss, nota, refsModelo_(lerModelo_(ss)));
+  // Setor pelo NCM (só existe quando a nota vem da tela completa, "Visualizar em Abas").
+  const modelo = lerModelo_(ss);
+  const setoresModelo = modelo.map(m => m.setor).filter((s, i, a) => s && a.indexOf(s) === i);
+  const aprendido = setoresAprendidos_(sh);
+  const setorNcm = nota.itens.map(it => setorPorNcm_(it.ncm, aprendido, setoresModelo));
+
+  const conc = conciliarLista_(ss, nota, refsModelo_(modelo), setorNcm);
 
   // Aba Compras: mesma ordem de colunas da aba Modelo (ver ABAS.COMPRAS.cab).
   const linhas = nota.itens.map((it, k) => [
     nota.chave, it.descricao, conc.classes[k].periodicidade, conc.classes[k].setor, it.unidade,
     it.quantidade, it.valorUnitario, it.valorTotal, nota.estabelecimento, nota.dataEmissao || '',
+    it.ncm || '', it.ean || '',
   ]);
   const inicio = sh.getLastRow() + 1;
   formatarCompras_(sh, inicio, linhas.length);
@@ -589,7 +659,10 @@ function importar_(url, htmlManual) {
  * Marca na aba Lista os itens pendentes que aparecem na nota (Comprado, quantidade, unidade,
  * valor unitário pago e local) e devolve setor/periodicidade de cada produto da nota.
  */
-function conciliarLista_(ss, nota, refs) {
+function conciliarLista_(ss, nota, refs, setorNcm) {
+  setorNcm = setorNcm || [];
+  // Item da lista e produto da nota com setores diferentes (pelo NCM) não são o mesmo produto.
+  const conflita = (setorItem, k) => setorNcm[k] && setorItem && normalizar_(setorNcm[k]) !== normalizar_(setorItem);
   const sh = abaLista_(ss);
   const L = layout_(ss);
   atribuirIds_(ss, sh);
@@ -603,7 +676,7 @@ function conciliarLista_(ss, nota, refs) {
   // 1ª passada: todas as palavras do item aparecem no produto; 2ª: só a primeira palavra.
   [2, 1].forEach(nivel => pendentes.forEach(item => {
     if (feitos[item.id]) return;
-    const j = descs.findIndex((d, k) => !usados[k] && grau_(item.item, d) >= nivel);
+    const j = descs.findIndex((d, k) => !usados[k] && !conflita(item.setor, k) && grau_(item.item, d) >= nivel);
     if (j < 0) return;
     usados[j] = true;
     feitos[item.id] = true;
@@ -618,11 +691,12 @@ function conciliarLista_(ss, nota, refs) {
     marcados.push(item.item);
   }));
 
+  // Setor: 1º pelo NCM; 2º do item da lista conciliado; 3º do item do Modelo com nome parecido.
   nota.itens.forEach((it, k) => {
-    if (classes[k] && classes[k].setor) return;
-    const c = classificar_(it.descricao, refs);
-    classes[k] = { setor: (classes[k] && classes[k].setor) || c.setor,
-                   periodicidade: (classes[k] && classes[k].periodicidade) || c.periodicidade };
+    const base = classes[k] || { setor: '', periodicidade: '' };
+    const c = base.setor && base.periodicidade ? base : classificar_(it.descricao, refs);
+    classes[k] = { setor: setorNcm[k] || base.setor || c.setor || '',
+                   periodicidade: base.periodicidade || c.periodicidade || '' };
   });
   return { marcados: marcados, foraDaLista: usados.filter(u => !u).length, classes: classes };
 }
@@ -731,7 +805,7 @@ function baixar_(url) {
  * (SP, RS/SVRS, PR, BA, GO, PE, ES, DF, SC...). Para outro estado, crie uma função que
  * receba (html, url) e devolva a nota, e adicione-a nesta lista.
  */
-const PARSERS = [parserPadraoSefaz_];
+const PARSERS = [parserPadraoSefaz_, parserCompletaSefaz_];
 
 function parseNfce_(html, url) {
   for (let i = 0; i < PARSERS.length; i++) {
@@ -777,6 +851,69 @@ function parserPadraoSefaz_(html, url) {
     const m = txt.match(/Valor a pagar\s*R?\$?\s*:?\s*([\d.,]+)/i);
     nota.total = m ? num_(m[1]) : round2_(nota.itens.reduce((s, it) => s + it.valorTotal, 0));
   }
+  return nota;
+}
+
+/**
+ * Pares "rótulo → valor" de um trecho do portal (<label>Rótulo</label> <span>valor</span>).
+ * As chaves vêm normalizadas (sem acentos/pontuação): "Código NCM" → "codigo ncm". Vale a 1ª ocorrência.
+ */
+function campos_(html) {
+  const out = {};
+  const re = /<label[^>]*>([\s\S]*?)<\/label>\s*<span[^>]*>([\s\S]*?)<\/span>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const k = normalizar_(texto_(m[1]));
+    if (k && out[k] === undefined) out[k] = texto_(m[2]);
+  }
+  return out;
+}
+
+/**
+ * Tela completa da NFC-e ("Visualizar em Abas" no portal da SEFAZ-SP, layout das abas NF-e/Emitente/
+ * Produtos e Serviços). Além do que o DANFE mostra, traz NCM, EAN e código do produto de cada item.
+ */
+function parserCompletaSefaz_(html, url) {
+  if (!/fixo-prod-serv-descricao/i.test(html)) return null;
+  const inicioProdutos = html.search(/<table[^>]*class=["']toggle box["']/i);
+  const geral = campos_(inicioProdutos > 0 ? html.slice(0, inicioProdutos) : html);
+  const todos = campos_(html);
+
+  const ch = texto_(html).match(/Dados da NF-?e\s*:?\s*((?:\d\s*){44})/i);
+  const nota = {
+    chave: ch ? ch[1].replace(/\D/g, '') : extrairChave_(html, url),
+    estabelecimento: geral['nome razao social'] || '',
+    cnpj: geral['cnpj'] || '',
+    dataEmissao: null,
+    total: num_(todos['valor total da nfe'] || geral['valor total da nota fiscal'] || ''),
+    itens: [],
+  };
+  const em = String(geral['data de emissao'] || '')
+    .match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (em) nota.dataEmissao = new Date(+em[3], +em[2] - 1, +em[1], +(em[4] || 0), +(em[5] || 0), +(em[6] || 0));
+
+  // Cada produto = tabela "toggle box" (resumo) seguida da "toggable box" (detalhes) até o próximo "toggle box".
+  html.split(/<table[^>]*class=["']toggle box["'][^>]*>/i).slice(1).forEach(bloco => {
+    const celula = cls => texto_(pegar_(bloco, new RegExp('class=["\']' + cls + '["\'][^>]*>([\\s\\S]*?)<\\/td>', 'i')));
+    const descricao = celula('fixo-prod-serv-descricao');
+    if (!descricao) return; // ex.: tabela de formas de pagamento
+    const det = campos_(bloco);
+    const quantidade = num_(celula('fixo-prod-serv-qtd'));
+    const valorTotal = num_(celula('fixo-prod-serv-vb'));
+    const vu = num_(det['valor unitario de comercializacao']);
+    const ean = String(det['codigo ean comercial'] || '').replace(/\D/g, '');
+    nota.itens.push({
+      codigo: det['codigo do produto'] || '',
+      descricao: descricao,
+      quantidade: quantidade,
+      unidade: celula('fixo-prod-serv-uc'),
+      valorUnitario: vu ? round2_(vu) : (quantidade ? round2_(valorTotal / quantidade) : 0),
+      valorTotal: valorTotal,
+      ncm: String(det['codigo ncm'] || '').replace(/\D/g, ''),
+      ean: ean.length >= 8 ? ean : '', // "SEM GTIN" (produtos sem código de barras) fica vazio
+    });
+  });
+  if (!nota.total) nota.total = round2_(nota.itens.reduce((s, it) => s + it.valorTotal, 0));
   return nota;
 }
 
@@ -832,12 +969,21 @@ function formatarCompras_(sh, linha, qtd) {
   sh.getRange(linha, CC.ChaveNFCe, qtd, 1).setNumberFormat('@');                   // chave de 44 dígitos como texto
   sh.getRange(linha, CC['Valor Unitário'], qtd, 2).setNumberFormat(FORMATO_VALOR); // Valor Unitário e Valor Total
   sh.getRange(linha, CC['Data Compra'], qtd, 1).setNumberFormat('dd/MM/yyyy HH:mm');
+  sh.getRange(linha, CC.NCM, qtd, 2).setNumberFormat('@'); // NCM e EAN como texto (NCM pode começar com 0)
 }
 
 /** Converte a aba Compras de um layout antigo para o atual, preservando os dados. */
 function migrarCompras_(sh, ss) {
   const cab = cabecalho_(sh);
   if (cab.join('|') === ABAS.COMPRAS.cab.join('|')) return;
+  // Layout anterior = atual sem NCM/EAN no fim: só acrescenta os títulos, sem mexer nos dados.
+  const anterior = ABAS.COMPRAS.cab.slice(0, CC.NCM - 1);
+  if (cab.join('|') === anterior.join('|')) {
+    sh.getRange(1, CC.NCM, 1, 2).setValues([['NCM', 'EAN']]).setFontWeight('bold');
+    formatarCompras_(sh, 2, sh.getMaxRows() - 1);
+    log_('migracao (info)', '', 'Colunas NCM e EAN acrescentadas à aba Compras', '', '', true);
+    return;
+  }
   if (!CABS_COMPRAS_ANTIGOS.some(a => a.join('|') === cab.join('|'))) {
     throw new Error('A aba Compras tem colunas inesperadas. Esperado: ' + ABAS.COMPRAS.cab.join(', '));
   }
@@ -850,7 +996,7 @@ function migrarCompras_(sh, ss) {
     const cls = classificar_(o.Descricao, refs);
     return [o.ChaveNFCe, o.Descricao, cls.periodicidade, cls.setor, o.Unidade, o.Quantidade, o.ValorUnitario,
             o.ValorTotalItem !== undefined && o.ValorTotalItem !== '' ? o.ValorTotalItem : round2_(q * vu),
-            o.Estabelecimento, o.DataEmissao];
+            o.Estabelecimento, o.DataEmissao, '', ''];
   });
   sh.clear();
   escreverCab_(sh, ABAS.COMPRAS.cab);
@@ -899,5 +1045,6 @@ function detalharCompra_(chave) {
     .filter(r => String(r[CC.ChaveNFCe - 1]) === chave)
     .map(r => ({ descricao: r[CC.Item - 1], setor: r[CC.Setor - 1], quantidade: r[CC.Quantidade - 1],
                  unidade: r[CC.Unidade - 1], valorUnitario: r[CC['Valor Unitário'] - 1],
-                 valorTotal: r[CC['Valor Total'] - 1] }));
+                 valorTotal: r[CC['Valor Total'] - 1], ncm: String(r[CC.NCM - 1] || ''),
+                 ean: String(r[CC.EAN - 1] || '') }));
 }
