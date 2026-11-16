@@ -330,8 +330,9 @@ function renderAbrirNota(url, motivo) {
   config.addEventListener('click', ev => { ev.preventDefault(); mostrarAba('config'); $('#favorito').scrollIntoView(); });
   $('#resultado').replaceChildren(el('div', { className: 'aviso' },
     el('p', { textContent: motivo }),
-    el('p', { className: 'dica', textContent: 'Toque no botão abaixo. Quando a nota abrir, toque na barra de endereço, ' +
-      'digite "Gastos" e escolha o favorito "Enviar para o Gastos". A nota volta para cá e é importada.' }),
+    el('p', { className: 'dica', textContent: 'Toque no botão abaixo. Quando a nota abrir, toque em "Visualizar em Abas" ' +
+      '(traz também NCM e código de barras), depois toque na barra de endereço, digite "Gastos" e escolha o favorito ' +
+      '"Enviar para o Gastos". A nota volta para cá e é importada.' }),
     abrir, el('p', { className: 'dica' }, config)));
 }
 
