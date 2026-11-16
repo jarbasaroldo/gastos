@@ -81,8 +81,18 @@ docs/                # SPA publicada no GitHub Pages
 - Se já existir uma aba com esse nome em outro formato (versão anterior do app), ela é renomeada para
   `aaaammdd_antiga` e uma nova é criada.
 
+**Nome do item nas abas `Compras` e `aaaammdd`**: se o produto da nota for reconhecido na aba `Modelo`,
+o `Item` recebe o **nome do Modelo** (e o setor/periodicidade dele); senão, fica a descrição da nota.
+- Reconhecimento: 1º pelo **EAN** (exato); 2º pelo **NCM**. Como vários itens podem ter o mesmo NCM, havendo
+  mais de um o desempate é pelo nome (aceitando abreviações: "DESN" ↔ "DESNATADO"); se continuar
+  ambíguo, o nome **não** é trocado.
+- Um item do Modelo pode ter **vários EAN/NCM**: na mesma célula, separados por vírgula, ponto e vírgula,
+  barra, espaço ou quebra de linha (ex.: `7898080640369; 7891000100103`), ou em linhas repetidas.
+
 **`Compras`** (uma linha por item da nota, na mesma ordem de colunas do Modelo):
-`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra | NCM | EAN`
+`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra | NCM | EAN | Descrição Nota`
+- `Descrição Nota`: a descrição do produto exatamente como veio na nota (o `Item` pode ter recebido o
+  nome do Modelo). As abas `aaaammdd` também têm essa coluna, logo depois das colunas do Modelo.
 - `Setor`, nesta ordem:
   1. **pelo NCM, com o que já se sabe**: o NCM do Modelo e o histórico da aba `Compras` (este prevalece, o
      mais recente). Para corrigir, edite o `Setor` daquele item em `Compras`; as próximas compras com o

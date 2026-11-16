@@ -400,8 +400,12 @@ function renderResultado(d) {
 
   const tbody = el('tbody');
   for (const it of d.itens) {
+    // Produto reconhecido no Modelo (EAN/NCM): mostra o nome do Modelo e, abaixo, a descrição da nota.
+    const produto = it.nomeModelo
+      ? el('td', {}, el('div', { textContent: it.nomeModelo }), el('small', { className: 'dica', textContent: it.descricao }))
+      : el('td', { textContent: it.descricao });
     tbody.append(el('tr', {},
-      el('td', { textContent: it.descricao }),
+      produto,
       el('td', { className: 'num', textContent: `${String(it.quantidade).replace('.', ',')} ${it.unidade}` }),
       el('td', { className: 'num', textContent: brl.format(it.valorTotal) })));
   }

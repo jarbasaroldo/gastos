@@ -27,13 +27,17 @@ const ABAS = {
   COMPRAS: {
     nome: NOME.COMPRAS,
     // NCM e EAN no fim: só vêm preenchidos quando a nota é importada pela tela completa ("Visualizar em Abas").
+    // "Descrição Nota": a descrição como veio na nota (o Item pode ter recebido o nome do Modelo).
     cab: ['ChaveNFCe', 'Item', 'Periodicidade', 'Setor', 'Unidade', 'Quantidade',
-          'Valor Unitário', 'Valor Total', 'Local', 'Data Compra', 'NCM', 'EAN'],
+          'Valor Unitário', 'Valor Total', 'Local', 'Data Compra', 'NCM', 'EAN', 'Descrição Nota'],
   },
   LOG: { nome: NOME.LOG, cab: ['DataHora', 'Acao', 'Chave', 'Erro', 'Detalhe', 'Url'] },
 };
 const CC = {}; // índice de coluna da aba Compras (1-based)
 ABAS.COMPRAS.cab.forEach((h, i) => (CC[h] = i + 1));
+
+/** Coluna extra das abas "aaaammdd", depois das colunas do Modelo. */
+const COL_DESCRICAO_NOTA = 'Descrição Nota';
 
 /** Layouts antigos da aba Compras, convertidos automaticamente para o atual. */
 const CABS_COMPRAS_ANTIGOS = [
@@ -368,7 +372,7 @@ function objLista_(L, r, linha) {
     valorUnitario: Number(get(L.valorUnitario)) || 0, valorTotal: Number(get(L.valorTotal)) || 0,
     local: String(get(L.local) || ''),
     comprado: L.comprado ? simNao_(get(L.comprado)) : !!(L.dataCompra && String(get(L.dataCompra)).trim()),
-    ncm: String(get(L.ncm) || '').replace(/\D/g, ''), ean: String(get(L.ean) || '').replace(/\D/g, ''),
+    ncms: codigos_(get(L.ncm), 'ncm'), eans: codigos_(get(L.ean), 'ean'),
   };
 }
 
@@ -436,7 +440,7 @@ function criarLista_(frequencias) {
       porNome[k] = { comprado: false };
       novos.push({ item: m.item, periodicidade: m.periodicidade, setor: m.setor, unidade: m.unidade,
                    quantidade: m.quantidade, valorUnitario: m.valorUnitario, local: m.local,
-                   ncm: m.ncm, ean: m.ean });
+                   ncm: m.ncmTexto, ean: m.eanTexto });
     });
   escreverLinhasLista_(ss, sh, novos);
   return { adicionados: novos.length, reativados: reativados };
@@ -504,6 +508,19 @@ function removerComprados_() {
 
 /* ================================ Modelo ================================ */
 
+/**
+ * Códigos (EAN ou NCM) de uma célula, que pode ter vários: "7898080640369, 7891000100103",
+ * "0402.21.10 / 04011010", um por linha... Separadores: vírgula, ponto e vírgula, barra, | e espaços.
+ * NCM vindo como número perde o zero inicial (4022110): é completado para 8 dígitos.
+ */
+function codigos_(v, tipo) {
+  return String(v === undefined || v === null ? '' : v)
+    .split(/[\s,;|/]+/)
+    .map(t => t.replace(/\D/g, ''))
+    .map(t => (tipo === 'ncm' && t.length === 7 ? '0' + t : t))
+    .filter((t, i, a) => t.length >= 8 && a.indexOf(t) === i);
+}
+
 /** Só dois tipos de unidade na lista: KG (quilograma) e UN (unidade, padrão para todo o resto). */
 function normUn_(s) {
   return /^(k|quil)/.test(normalizar_(s)) ? 'KG' : 'UN';
@@ -535,9 +552,36 @@ function lerModelo_(ss) {
       quantidade: Number(get(r, L.quantidade)) || 1,
       valorUnitario: get(r, L.valorUnitario) === '' ? '' : Number(get(r, L.valorUnitario)) || 0,
       local: String(get(r, L.local) || '').trim(),
-      ncm: String(get(r, L.ncm) || '').replace(/\D/g, ''),
-      ean: String(get(r, L.ean) || '').replace(/\D/g, ''),
+      ncms: codigos_(get(r, L.ncm), 'ncm'),
+      eans: codigos_(get(r, L.ean), 'ean'),
+      ncmTexto: String(get(r, L.ncm) || '').trim(), // como está no Modelo (para copiar para a Lista)
+      eanTexto: String(get(r, L.ean) || '').trim(),
     }));
+}
+
+/**
+ * Item do Modelo que corresponde a um produto da nota: 1º pelo EAN (exato); 2º pelo NCM. Como vários
+ * itens podem ter o mesmo NCM, havendo mais de um o desempate é pelo nome; se continuar ambíguo, devolve
+ * null (não arrisca). Um item do Modelo pode ter vários EAN/NCM na mesma célula ou em linhas repetidas.
+ */
+function identificarNoModelo_(it, modelo) {
+  const desc = ' ' + normalizar_(it.descricao) + ' ';
+  const melhorPorNome = cands => {
+    if (cands.length === 1) return cands[0];
+    const notas = cands.map(m => grau_(m.item, desc));
+    const max = Math.max.apply(null, notas);
+    return max > 0 && notas.filter(n => n === max).length === 1 ? cands[notas.indexOf(max)] : null;
+  };
+  const unicos = lista => lista.filter((m, i, a) => a.findIndex(x => normalizar_(x.item) === normalizar_(m.item)) === i);
+  if (it.ean) {
+    const porEan = unicos(modelo.filter(m => m.eans.indexOf(it.ean) >= 0));
+    if (porEan.length) return melhorPorNome(porEan) || porEan[0]; // EAN igual: mesmo produto
+  }
+  if (it.ncm) {
+    const porNcm = unicos(modelo.filter(m => m.ncms.indexOf(it.ncm) >= 0));
+    if (porNcm.length) return melhorPorNome(porNcm);
+  }
+  return null;
 }
 
 function resumoModelo_() {
@@ -566,7 +610,10 @@ function palavras_(s) {
 function grau_(nomeItem, descNorm) {
   const ps = palavras_(nomeItem);
   if (!ps.length) return 0;
-  const tem = p => descNorm.indexOf(' ' + p) >= 0;
+  // Uma palavra do item "aparece" no produto se uma palavra da nota começa com ela ("leite" ↔ "leiteiro")
+  // ou é abreviação dela, com 3+ letras ("desn" ↔ "desnatado", "iog" ↔ "iogurte").
+  const toks = descNorm.trim().split(' ').filter(t => t.length >= 3 && !/^\d/.test(t));
+  const tem = p => toks.some(t => t.indexOf(p) === 0 || p.indexOf(t) === 0);
   if (ps.every(tem)) return 2;
   return tem(ps[0]) ? 1 : 0;
 }
@@ -659,17 +706,21 @@ function importar_(url, htmlManual) {
   const setoresModelo = modelo.map(m => m.setor).filter((s, i, a) => s && a.indexOf(s) === i);
   // NCM → setor: o Modelo ensina primeiro; o histórico da aba Compras (mais recente) prevalece.
   const aprendido = {};
-  modelo.forEach(m => { if (m.ncm && m.setor) aprendido[m.ncm] = m.setor; });
+  modelo.forEach(m => { if (m.setor) m.ncms.forEach(n => (aprendido[n] = m.setor)); });
   Object.assign(aprendido, setoresAprendidos_(sh));
   const setorNcm = nota.itens.map(it => setorPorNcm_(it.ncm, aprendido, setoresModelo));
 
-  const conc = conciliarLista_(ss, nota, refsModelo_(modelo), setorNcm);
+  // Produto reconhecido no Modelo (EAN, depois NCM): o Item passa a ter o nome do Modelo.
+  const ident = nota.itens.map(it => identificarNoModelo_(it, modelo));
+  nota.itens.forEach((it, k) => { if (ident[k]) it.nomeModelo = ident[k].item; });
+
+  const conc = conciliarLista_(ss, nota, refsModelo_(modelo), setorNcm, ident);
 
   // Aba Compras: mesma ordem de colunas da aba Modelo (ver ABAS.COMPRAS.cab).
   const linhas = nota.itens.map((it, k) => [
-    nota.chave, it.descricao, conc.classes[k].periodicidade, conc.classes[k].setor, it.unidade,
+    nota.chave, it.nomeModelo || it.descricao, conc.classes[k].periodicidade, conc.classes[k].setor, it.unidade,
     it.quantidade, it.valorUnitario, it.valorTotal, nota.estabelecimento, nota.dataEmissao || '',
-    it.ncm || '', it.ean || '',
+    it.ncm || '', it.ean || '', it.descricao,
   ]);
   const inicio = sh.getLastRow() + 1;
   formatarCompras_(sh, inicio, linhas.length);
@@ -684,8 +735,9 @@ function importar_(url, htmlManual) {
  * Marca na aba Lista os itens pendentes que aparecem na nota (Comprado, quantidade, unidade,
  * valor unitário pago e local) e devolve setor/periodicidade de cada produto da nota.
  */
-function conciliarLista_(ss, nota, refs, setorNcm) {
+function conciliarLista_(ss, nota, refs, setorNcm, ident) {
   setorNcm = setorNcm || [];
+  ident = ident || [];
   // Item da lista e produto da nota com setores diferentes (pelo NCM) não são o mesmo produto.
   const conflita = (setorItem, k) => setorNcm[k] && setorItem && normalizar_(setorNcm[k]) !== normalizar_(setorItem);
   const sh = abaLista_(ss);
@@ -698,10 +750,11 @@ function conciliarLista_(ss, nota, refs, setorNcm) {
   const pendentes = lerItens_(ss, sh).filter(i => !i.comprado);
   const feitos = {};
 
-  // 1ª passada: mesmo código de barras (EAN); 2ª: todas as palavras do item aparecem no produto;
-  // 3ª: só a primeira palavra.
+  // 1ª passada: mesmo código de barras (EAN) ou mesmo item do Modelo reconhecido pelo EAN/NCM;
+  // 2ª: todas as palavras do item aparecem no produto; 3ª: só a primeira palavra.
   const casa = (item, d, k, nivel) => nivel === 3
-    ? !!(item.ean && nota.itens[k].ean && item.ean === nota.itens[k].ean)
+    ? !!(nota.itens[k].ean && item.eans.indexOf(nota.itens[k].ean) >= 0) ||
+      !!(ident[k] && normalizar_(ident[k].item) === normalizar_(item.item))
     : !conflita(item.setor, k) && grau_(item.item, d) >= nivel;
   [3, 2, 1].forEach(nivel => pendentes.forEach(item => {
     if (feitos[item.id]) return;
@@ -717,17 +770,19 @@ function conciliarLista_(ss, nota, refs, setorNcm) {
     set(L.unidade, normUn_(it.unidade));
     set(L.valorUnitario, it.valorUnitario);
     set(L.local, nota.estabelecimento);
-    if (it.ncm && !item.ncm) set(L.ncm, it.ncm);
-    if (it.ean && !item.ean) set(L.ean, it.ean);
+    if (it.ncm && !item.ncms.length) set(L.ncm, it.ncm);
+    if (it.ean && !item.eans.length) set(L.ean, it.ean);
     marcados.push(item.item);
   }));
 
-  // Setor: 1º pelo NCM; 2º do item da lista conciliado; 3º do item do Modelo com nome parecido.
+  // Setor/periodicidade: 1º do item do Modelo reconhecido pelo EAN/NCM; 2º setor pelo NCM;
+  // 3º do item da lista conciliado; 4º do item do Modelo com nome parecido.
   nota.itens.forEach((it, k) => {
+    const m = ident[k] || { setor: '', periodicidade: '' };
     const base = classes[k] || { setor: '', periodicidade: '' };
     const c = base.setor && base.periodicidade ? base : classificar_(it.descricao, refs);
-    classes[k] = { setor: setorNcm[k] || base.setor || c.setor || '',
-                   periodicidade: base.periodicidade || c.periodicidade || '' };
+    classes[k] = { setor: m.setor || setorNcm[k] || base.setor || c.setor || '',
+                   periodicidade: m.periodicidade || base.periodicidade || c.periodicidade || '' };
   });
   return { marcados: marcados, foraDaLista: usados.filter(u => !u).length, classes: classes };
 }
@@ -737,7 +792,9 @@ function gravarAbaDoDia_(ss, nota, classes) {
   const L = layout_(ss);
   const nome = Utilities.formatDate(nota.dataEmissao || new Date(), FUSO, 'yyyyMMdd');
   let sh = ss.getSheetByName(nome);
-  if (sh && sh.getLastRow() > 0 && cabecalho_(sh).join('|') !== L.cab.join('|')) {
+  // Formato confere se as primeiras colunas são as do Modelo (depois delas vem a "Descrição Nota").
+  const noFormato = s => cabecalho_(s).slice(0, L.largura).join('|') === L.cab.join('|');
+  if (sh && sh.getLastRow() > 0 && !noFormato(sh)) {
     // Aba com o mesmo nome em outro formato (lista da versão anterior): preserva com outro nome.
     let novoNome = nome + '_antiga';
     if (ss.getSheetByName(novoNome)) novoNome += '_' + new Date().getTime();
@@ -747,12 +804,21 @@ function gravarAbaDoDia_(ss, nota, classes) {
   }
   if (!sh) sh = ss.insertSheet(nome);
   if (sh.getLastRow() === 0) formatarComoModelo_(ss, sh);
+  // Coluna extra "Descrição Nota" logo depois das colunas do Modelo (criada se ainda não existir).
+  const colDesc = L.largura + 1;
+  if (String(sh.getRange(1, colDesc).getValue()).trim() !== COL_DESCRICAO_NOTA) {
+    const cabModelo = sh.getRange(1, Math.max(1, L.largura));
+    sh.getRange(1, colDesc).setValue(COL_DESCRICAO_NOTA);
+    cabModelo.copyTo(sh.getRange(1, colDesc), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    sh.setColumnWidth(colDesc, 220);
+  }
 
   const linhas = nota.itens.map((it, k) => {
-    const r = new Array(L.largura).fill('');
+    const r = new Array(L.largura + 1).fill('');
+    r[L.largura] = it.descricao; // Descrição Nota
     const set = (c, v) => { if (c) r[c - 1] = v; };
     set(L.chave, nota.chave);
-    set(L.item, it.descricao);
+    set(L.item, it.nomeModelo || it.descricao);
     set(L.periodicidade, classes[k].periodicidade);
     set(L.setor, classes[k].setor);
     set(L.unidade, it.unidade);
@@ -771,7 +837,7 @@ function gravarAbaDoDia_(ss, nota, classes) {
   if (L.ean) sh.getRange(sh.getLastRow() + 1, L.ean, linhas.length, 1).setNumberFormat('@');
   const inicio = sh.getLastRow() + 1;
   sh.getRange(inicio, L.chave, linhas.length, 1).setNumberFormat('@');
-  sh.getRange(inicio, 1, linhas.length, L.largura).setValues(linhas);
+  sh.getRange(inicio, 1, linhas.length, L.largura + 1).setValues(linhas);
   caixasDeSelecao_(sh, L, inicio, linhas.length);
   return nome;
 }
@@ -1012,13 +1078,16 @@ function formatarCompras_(sh, linha, qtd) {
 /** Converte a aba Compras de um layout antigo para o atual, preservando os dados. */
 function migrarCompras_(sh, ss) {
   const cab = cabecalho_(sh);
-  if (cab.join('|') === ABAS.COMPRAS.cab.join('|')) return;
-  // Layout anterior = atual sem NCM/EAN no fim: só acrescenta os títulos, sem mexer nos dados.
-  const anterior = ABAS.COMPRAS.cab.slice(0, CC.NCM - 1);
-  if (cab.join('|') === anterior.join('|')) {
-    sh.getRange(1, CC.NCM, 1, 2).setValues([['NCM', 'EAN']]).setFontWeight('bold');
+  const atual = ABAS.COMPRAS.cab;
+  if (cab.join('|') === atual.join('|')) return;
+  // Layout anterior = atual sem as últimas colunas (NCM, EAN, Descrição Nota): só acrescenta os títulos
+  // que faltam, sem mexer nos dados.
+  if (cab.length >= CC.NCM - 1 && cab.length < atual.length &&
+      cab.join('|') === atual.slice(0, cab.length).join('|')) {
+    const faltam = atual.slice(cab.length);
+    sh.getRange(1, cab.length + 1, 1, faltam.length).setValues([faltam]).setFontWeight('bold');
     formatarCompras_(sh, 2, sh.getMaxRows() - 1);
-    log_('migracao (info)', '', 'Colunas NCM e EAN acrescentadas à aba Compras', '', '', true);
+    log_('migracao (info)', '', 'Colunas acrescentadas à aba Compras: ' + faltam.join(', '), '', '', true);
     return;
   }
   if (!CABS_COMPRAS_ANTIGOS.some(a => a.join('|') === cab.join('|'))) {
@@ -1033,7 +1102,7 @@ function migrarCompras_(sh, ss) {
     const cls = classificar_(o.Descricao, refs);
     return [o.ChaveNFCe, o.Descricao, cls.periodicidade, cls.setor, o.Unidade, o.Quantidade, o.ValorUnitario,
             o.ValorTotalItem !== undefined && o.ValorTotalItem !== '' ? o.ValorTotalItem : round2_(q * vu),
-            o.Estabelecimento, o.DataEmissao, '', ''];
+            o.Estabelecimento, o.DataEmissao, '', '', o.Descricao];
   });
   sh.clear();
   escreverCab_(sh, ABAS.COMPRAS.cab);
@@ -1083,5 +1152,5 @@ function detalharCompra_(chave) {
     .map(r => ({ descricao: r[CC.Item - 1], setor: r[CC.Setor - 1], quantidade: r[CC.Quantidade - 1],
                  unidade: r[CC.Unidade - 1], valorUnitario: r[CC['Valor Unitário'] - 1],
                  valorTotal: r[CC['Valor Total'] - 1], ncm: String(r[CC.NCM - 1] || ''),
-                 ean: String(r[CC.EAN - 1] || '') }));
+                 ean: String(r[CC.EAN - 1] || ''), descricaoNota: String(r[CC['Descrição Nota'] - 1] || '') }));
 }
