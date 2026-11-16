@@ -45,39 +45,48 @@ docs/                # SPA publicada no GitHub Pages
 
 ### Abas da planilha
 
-**`Modelo`** (você mantém):
-`(vazia) | Item | Periodicidade estimada | Setor | Unidade | Quantidade | Valor Unitário (R$) | Valor Total (R$) | Local | Comprado`
+**`Modelo`** (você mantém), no mesmo formato da aba `Compras`:
+`ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra | NCM | EAN`
+- A 1ª coluna (`ChaveNFCe`, `ID` ou sem título) é a coluna-chave: na `Lista` guarda o ID de cada item; nas
+  abas `aaaammdd`, a chave da nota.
+- Sem coluna `Comprado`, um item é considerado comprado quando a `Data Compra` está preenchida
+  (layouts antigos com a coluna `Comprado` continuam funcionando).
+- `NCM` e `EAN` do Modelo são aproveitados: o NCM ensina o setor e o EAN (código de barras) liga o produto
+  da nota ao item da Lista com segurança, antes da comparação pelo nome.
 - É a referência de layout: as abas `Lista` e `aaaammdd` são criadas com **exatamente** este cabeçalho,
   formatação, largura de colunas e linha congelada. Se você mudar o Modelo, as abas novas seguem a mudança.
 - As colunas são localizadas pelo nome do cabeçalho, sem diferenciar acentos ou maiúsculas.
 - A periodicidade aceita `Semanal`, `Quinzenal`, `Mensal` ou `Demanda` (também "semanais", "sob demanda"…).
 
 **`Lista`** — a lista de compras **única e compartilhada**, no formato do Modelo:
-- A coluna A (sem título) guarda o ID de cada item. Não apague nem edite essa coluna. Itens digitados
+- A coluna-chave (1ª coluna) guarda o ID de cada item. Não apague nem edite essa coluna. Itens digitados
   direto na planilha, sem ID, ganham um automaticamente.
-- `Comprado` é uma caixa de seleção. `Valor Total` é a fórmula `Quantidade × Valor Unitário`.
+- Marcar como comprado preenche a `Data Compra` (e a caixa `Comprado`, se o Modelo tiver essa coluna).
+  `Valor Total` é a fórmula `Quantidade × Valor Unitário`.
 - **Vários usuários ao mesmo tempo**: cada ação grava só o campo alterado, localizado pelo ID (não pela
   posição da linha), e as gravações passam por um bloqueio do Apps Script, uma de cada vez. O app recarrega
   a lista a cada 5 segundos. Dá para editar também direto na planilha.
 - *Nova lista* acrescenta os itens do Modelo das periodicidades marcadas. Não apaga nada, não duplica
   itens já presentes e faz itens já comprados voltarem a ficar pendentes.
 - *Remover itens comprados* exclui da aba as linhas com `Comprado` marcado.
-- Ao importar uma nota, os itens pendentes que casam com produtos da nota ficam com `Comprado` marcado e
-  recebem quantidade, unidade, valor unitário pago e local. O casamento tenta primeiro "todas as palavras
-  do item na descrição" e depois "a primeira palavra" (ex.: `Carne (patinho/alcatra)` ↔ `CARNE PATINHO KG`).
+- Ao importar uma nota, os itens pendentes que casam com produtos da nota ficam comprados e recebem
+  quantidade, unidade, valor unitário pago, local, data da compra, NCM e EAN. O casamento tenta, nesta
+  ordem: mesmo **EAN**; "todas as palavras do item na descrição"; "a primeira palavra"
+  (ex.: `Carne (patinho/alcatra)` ↔ `CARNE PATINHO KG`).
 
 **`aaaammdd`** (ex.: `20261115`) — a compra do dia, no formato do Modelo:
 - Criada ao importar a primeira nota daquela data. Notas do mesmo dia entram na mesma aba.
-- Uma linha por produto da nota: coluna A = chave da nota, `Item` = descrição na nota, `Comprado` marcado.
+- Uma linha por produto da nota: coluna-chave = chave da nota, `Item` = descrição na nota, `Data Compra`,
+  `NCM` e `EAN` preenchidos.
 - Se já existir uma aba com esse nome em outro formato (versão anterior do app), ela é renomeada para
   `aaaammdd_antiga` e uma nova é criada.
 
 **`Compras`** (uma linha por item da nota, na mesma ordem de colunas do Modelo):
 `ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra | NCM | EAN`
 - `Setor`, nesta ordem:
-  1. **pelo NCM, com o que o histórico ensinou**: se o mesmo NCM já aparece na aba `Compras` com um setor,
-     usa o mais recente. Para corrigir, edite o `Setor` daquele item em `Compras`; as próximas compras com
-     o mesmo NCM seguem a correção;
+  1. **pelo NCM, com o que já se sabe**: o NCM do Modelo e o histórico da aba `Compras` (este prevalece, o
+     mais recente). Para corrigir, edite o `Setor` daquele item em `Compras`; as próximas compras com o
+     mesmo NCM seguem a correção;
   2. **pela tabela de NCM** (`SETOR_POR_NCM` em `Code.gs`, ex.: `0401` leite → Lacticínio, `0402` leite em
      pó → Matinal, `02` carnes → Açougue), usando só setores que existem no Modelo;
   3. pelo item da Lista conciliado ou, se não houver, pelo item do Modelo com nome parecido.

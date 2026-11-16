@@ -231,10 +231,15 @@ function layout_(ss) {
   if (!cab.length) cab = CAB_MODELO_PADRAO.slice();
   const norm = cab.map(normalizar_);
   const col = nomes => norm.findIndex(h => h && nomes.some(n => h === n || h.indexOf(n) === 0)) + 1;
-  let chave = norm.indexOf('') + 1;            // coluna sem título: ID na Lista / chave da nota na aba do dia
+  // Coluna-chave: "ChaveNFCe"/"ID" ou, no layout antigo, a coluna sem título.
+  // Guarda o ID do item na Lista e a chave da nota nas abas do dia.
+  let chave = col(['chavenfce', 'chave nfce', 'chave', 'id']) || norm.indexOf('') + 1;
   if (!chave) { cab.push('ID'); chave = cab.length; }
   LAYOUT_ = {
     cab: cab, largura: cab.length, chave: chave,
+    dataCompra: col(['data compra', 'data da compra', 'comprado em']),
+    ncm: col(['ncm']),
+    ean: col(['ean', 'gtin', 'codigo de barras']),
     item: col(['item', 'produto', 'descricao']),
     periodicidade: col(['periodicidade', 'frequencia', 'recorrencia']),
     setor: col(['setor', 'secao', 'departamento', 'categoria']),
@@ -326,8 +331,20 @@ function linhaLista_(L, o, linha) {
     set(L.valorTotal, '=' + colLetra_(L.quantidade) + linha + '*' + colLetra_(L.valorUnitario) + linha);
   }
   set(L.local, o.local || '');
+  set(L.ncm, o.ncm || '');
+  set(L.ean, o.ean || '');
   set(L.comprado, !!o.comprado);
+  set(L.dataCompra, o.comprado ? (o.dataCompra || new Date()) : '');
   return r;
+}
+
+/**
+ * Marca/desmarca um item como comprado. Usa a coluna "Comprado" se existir; a coluna "Data Compra"
+ * recebe a data (sem a coluna "Comprado", a data preenchida é o que indica que foi comprado).
+ */
+function marcarComprado_(sh, L, linha, comprado, data) {
+  if (L.comprado) sh.getRange(linha, L.comprado).setValue(!!comprado);
+  if (L.dataCompra) sh.getRange(linha, L.dataCompra).setValue(comprado ? (data || new Date()) : '');
 }
 
 function escreverLinhasLista_(ss, sh, objs) {
@@ -335,6 +352,8 @@ function escreverLinhasLista_(ss, sh, objs) {
   const L = layout_(ss);
   const inicio = sh.getLastRow() + 1;
   const linhas = objs.map((o, i) => linhaLista_(L, o, inicio + i));
+  if (L.ncm) sh.getRange(inicio, L.ncm, linhas.length, 1).setNumberFormat('@');
+  if (L.ean) sh.getRange(inicio, L.ean, linhas.length, 1).setNumberFormat('@');
   sh.getRange(inicio, 1, linhas.length, L.largura).setValues(linhas);
   caixasDeSelecao_(sh, L, inicio, linhas.length);
   return linhas;
@@ -347,7 +366,9 @@ function objLista_(L, r, linha) {
     periodicidade: String(get(L.periodicidade) || ''), setor: String(get(L.setor) || '').trim(),
     unidade: normUn_(get(L.unidade)), quantidade: Number(get(L.quantidade)) || 0,
     valorUnitario: Number(get(L.valorUnitario)) || 0, valorTotal: Number(get(L.valorTotal)) || 0,
-    local: String(get(L.local) || ''), comprado: simNao_(get(L.comprado)),
+    local: String(get(L.local) || ''),
+    comprado: L.comprado ? simNao_(get(L.comprado)) : !!(L.dataCompra && String(get(L.dataCompra)).trim()),
+    ncm: String(get(L.ncm) || '').replace(/\D/g, ''), ean: String(get(L.ean) || '').replace(/\D/g, ''),
   };
 }
 
@@ -408,13 +429,14 @@ function criarLista_(frequencias) {
       const k = normalizar_(m.item);
       const atual = porNome[k];
       if (atual) {
-        if (atual.comprado && L.comprado) { sh.getRange(atual.linha, L.comprado).setValue(false); reativados++; }
+        if (atual.comprado) { marcarComprado_(sh, L, atual.linha, false); reativados++; }
         atual.comprado = false;
         return;
       }
       porNome[k] = { comprado: false };
       novos.push({ item: m.item, periodicidade: m.periodicidade, setor: m.setor, unidade: m.unidade,
-                   quantidade: m.quantidade, valorUnitario: m.valorUnitario, local: m.local });
+                   quantidade: m.quantidade, valorUnitario: m.valorUnitario, local: m.local,
+                   ncm: m.ncm, ean: m.ean });
     });
   escreverLinhasLista_(ss, sh, novos);
   return { adicionados: novos.length, reativados: reativados };
@@ -453,7 +475,7 @@ function atualizarItem_(id, campos) {
     set(L.quantidade, q);
   }
   if (campos.unidade !== undefined) set(L.unidade, normUn_(campos.unidade));
-  if (campos.comprado !== undefined) set(L.comprado, !!campos.comprado);
+  if (campos.comprado !== undefined) marcarComprado_(sh, L, linha, !!campos.comprado);
   if (campos.item !== undefined && String(campos.item).trim()) set(L.item, String(campos.item).trim());
   if (campos.setor !== undefined) set(L.setor, String(campos.setor).trim());
   return { id: id };
@@ -472,12 +494,10 @@ function removerComprados_() {
   const ss = ss_();
   const sh = abaLista_(ss);
   const L = layout_(ss);
-  const n = sh.getLastRow();
-  if (n < 2 || !L.comprado) return { removidos: 0 };
-  const st = sh.getRange(2, L.comprado, n - 1, 1).getValues();
+  const linhas = dados_(sh, L.largura).map((r, i) => objLista_(L, r, i + 2));
   let removidos = 0;
-  for (let i = st.length - 1; i >= 0; i--) {
-    if (simNao_(st[i][0])) { sh.deleteRow(i + 2); removidos++; }
+  for (let i = linhas.length - 1; i >= 0; i--) {
+    if (linhas[i].item && linhas[i].comprado) { sh.deleteRow(linhas[i].linha); removidos++; }
   }
   return { removidos: removidos };
 }
@@ -515,6 +535,8 @@ function lerModelo_(ss) {
       quantidade: Number(get(r, L.quantidade)) || 1,
       valorUnitario: get(r, L.valorUnitario) === '' ? '' : Number(get(r, L.valorUnitario)) || 0,
       local: String(get(r, L.local) || '').trim(),
+      ncm: String(get(r, L.ncm) || '').replace(/\D/g, ''),
+      ean: String(get(r, L.ean) || '').replace(/\D/g, ''),
     }));
 }
 
@@ -635,7 +657,10 @@ function importar_(url, htmlManual) {
   // Setor pelo NCM (só existe quando a nota vem da tela completa, "Visualizar em Abas").
   const modelo = lerModelo_(ss);
   const setoresModelo = modelo.map(m => m.setor).filter((s, i, a) => s && a.indexOf(s) === i);
-  const aprendido = setoresAprendidos_(sh);
+  // NCM → setor: o Modelo ensina primeiro; o histórico da aba Compras (mais recente) prevalece.
+  const aprendido = {};
+  modelo.forEach(m => { if (m.ncm && m.setor) aprendido[m.ncm] = m.setor; });
+  Object.assign(aprendido, setoresAprendidos_(sh));
   const setorNcm = nota.itens.map(it => setorPorNcm_(it.ncm, aprendido, setoresModelo));
 
   const conc = conciliarLista_(ss, nota, refsModelo_(modelo), setorNcm);
@@ -673,21 +698,27 @@ function conciliarLista_(ss, nota, refs, setorNcm) {
   const pendentes = lerItens_(ss, sh).filter(i => !i.comprado);
   const feitos = {};
 
-  // 1ª passada: todas as palavras do item aparecem no produto; 2ª: só a primeira palavra.
-  [2, 1].forEach(nivel => pendentes.forEach(item => {
+  // 1ª passada: mesmo código de barras (EAN); 2ª: todas as palavras do item aparecem no produto;
+  // 3ª: só a primeira palavra.
+  const casa = (item, d, k, nivel) => nivel === 3
+    ? !!(item.ean && nota.itens[k].ean && item.ean === nota.itens[k].ean)
+    : !conflita(item.setor, k) && grau_(item.item, d) >= nivel;
+  [3, 2, 1].forEach(nivel => pendentes.forEach(item => {
     if (feitos[item.id]) return;
-    const j = descs.findIndex((d, k) => !usados[k] && !conflita(item.setor, k) && grau_(item.item, d) >= nivel);
+    const j = descs.findIndex((d, k) => !usados[k] && casa(item, d, k, nivel));
     if (j < 0) return;
     usados[j] = true;
     feitos[item.id] = true;
     const it = nota.itens[j];
     classes[j] = { setor: item.setor, periodicidade: item.periodicidade };
     const set = (c, v) => { if (c) sh.getRange(item.linha, c).setValue(v); };
-    set(L.comprado, true);
+    marcarComprado_(sh, L, item.linha, true, nota.dataEmissao || new Date());
     set(L.quantidade, it.quantidade);
     set(L.unidade, normUn_(it.unidade));
     set(L.valorUnitario, it.valorUnitario);
     set(L.local, nota.estabelecimento);
+    if (it.ncm && !item.ncm) set(L.ncm, it.ncm);
+    if (it.ean && !item.ean) set(L.ean, it.ean);
     marcados.push(item.item);
   }));
 
@@ -729,9 +760,15 @@ function gravarAbaDoDia_(ss, nota, classes) {
     set(L.valorUnitario, it.valorUnitario);
     set(L.valorTotal, it.valorTotal);
     set(L.local, nota.estabelecimento);
+    set(L.ncm, it.ncm || '');
+    set(L.ean, it.ean || '');
     set(L.comprado, true);
+    set(L.dataCompra, nota.dataEmissao || new Date());
     return r;
   });
+  // NCM e EAN como texto (NCM pode começar com 0; EAN tem 13 dígitos).
+  if (L.ncm) sh.getRange(sh.getLastRow() + 1, L.ncm, linhas.length, 1).setNumberFormat('@');
+  if (L.ean) sh.getRange(sh.getLastRow() + 1, L.ean, linhas.length, 1).setNumberFormat('@');
   const inicio = sh.getLastRow() + 1;
   sh.getRange(inicio, L.chave, linhas.length, 1).setNumberFormat('@');
   sh.getRange(inicio, 1, linhas.length, L.largura).setValues(linhas);
