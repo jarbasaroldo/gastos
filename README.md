@@ -58,7 +58,7 @@ docs/                # SPA publicada no GitHub Pages
 - `Comprado` é uma caixa de seleção. `Valor Total` é a fórmula `Quantidade × Valor Unitário`.
 - **Vários usuários ao mesmo tempo**: cada ação grava só o campo alterado, localizado pelo ID (não pela
   posição da linha), e as gravações passam por um bloqueio do Apps Script, uma de cada vez. O app recarrega
-  a lista a cada 15 segundos. Dá para editar também direto na planilha.
+  a lista a cada 5 segundos. Dá para editar também direto na planilha.
 - *Nova lista* acrescenta os itens do Modelo das periodicidades marcadas. Não apaga nada, não duplica
   itens já presentes e faz itens já comprados voltarem a ficar pendentes.
 - *Remover itens comprados* exclui da aba as linhas com `Comprado` marcado.
@@ -143,7 +143,7 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
 
 ## Como usar
 
-- **Lista**: mostra a aba `Lista`, a mesma para todos os usuários, e se atualiza sozinha a cada 15 s.
+- **Lista**: mostra a aba `Lista`, a mesma para todos os usuários, e se atualiza sozinha a cada 5 s.
   Toque em *Nova lista* e marque as periodicidades do Modelo (semanais, quinzenais, mensais, demanda)
   para incluir esses itens.
   - As colunas são **Setor**, **Item** e **Quantidade**, em ordem alfabética de setor e depois de item.
@@ -176,7 +176,7 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
   mais), ou ao menos a primeira, aparecem na descrição do produto. Descrições muito abreviadas
   ("ARR TJ 5K") podem não casar.
 - **Edição simultânea**: duas pessoas mudando o *mesmo campo do mesmo item* ao mesmo tempo — vale a última
-  gravação. Os outros usuários veem a mudança em até 15 s.
+  gravação. Os outros usuários veem a mudança em até 5 s.
 - **Não reordene a aba Lista pela planilha** enquanto alguém usa o app. O app acha os itens pelo ID e
   continua funcionando, mas a fórmula de `Valor Total` pode ficar apontando para outra linha.
 - **Cotas grátis do Apps Script** (conta pessoal): cerca de 20 mil chamadas `UrlFetch` por dia e 6 minutos

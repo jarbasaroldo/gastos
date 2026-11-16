@@ -84,7 +84,7 @@ function mostrarAba(nome) {
 let itens = [];
 let versaoLocal = 0;   // muda a cada edição local; descarta recargas que começaram antes dela
 let emAndamento = 0;   // edições ainda não confirmadas pelo servidor
-const ATUALIZAR_A_CADA = 15000;
+const ATUALIZAR_A_CADA = 5000; // ms
 
 /** Só dois tipos de unidade: KG (quilograma) e UN (unidade, padrão). */
 const normUn = u => (/^\s*(k|quil)/i.test(String(u || '')) ? 'KG' : 'UN');
