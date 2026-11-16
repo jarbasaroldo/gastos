@@ -41,12 +41,13 @@ function toast(msg, erro = false) {
 /* =============================== API ================================ */
 
 // Content-Type text/plain evita o preflight CORS, que o Apps Script não responde.
-async function api(action, dados = {}) {
+// `silencioso`: não mostra o indicador de carregamento (usado na atualização automática da lista).
+async function api(action, dados = {}, { silencioso = false } = {}) {
   if (!cfg.url || !cfg.token) {
-    mostrarAba('config');
+    if (!silencioso) mostrarAba('config');
     throw new Error('Configure a URL do Web App e o token.');
   }
-  ocupado(true);
+  if (!silencioso) ocupado(true);
   try {
     const res = await fetch(cfg.url, {
       method: 'POST',
@@ -58,7 +59,7 @@ async function api(action, dados = {}) {
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido.');
     return j.data;
   } finally {
-    ocupado(false);
+    if (!silencioso) ocupado(false);
   }
 }
 
@@ -68,51 +69,66 @@ function mostrarAba(nome) {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('ativa', b.dataset.aba === nome));
   document.querySelectorAll('.aba').forEach(s => (s.hidden = s.id !== 'aba-' + nome));
   if (nome !== 'escanear') pararCamera();
-  if (nome === 'lista' && cfg.url) { carregarListas(); if (!modeloResumo) carregarModelo(); }
+  if (nome === 'lista' && cfg.url) { carregarLista(); if (!modeloResumo) carregarModelo(); }
   if (nome === 'compras' && cfg.url) carregarCompras();
   if (nome === 'config') { $('#cfg-url').value = cfg.url || ''; $('#cfg-token').value = cfg.token || ''; }
 }
 
 /* ========================= Lista de compras ========================= */
+/*
+ * Uma única lista compartilhada (aba "Lista" da planilha). Vários usuários podem editá-la ao mesmo
+ * tempo: cada alteração grava só o campo mudado, identificado pelo ID do item, e a lista é
+ * recarregada automaticamente para mostrar o que os outros mudaram.
+ */
 
-const LISTA_KEY = 'gastos.lista';
 let itens = [];
-let listaAtual = (() => { try { return localStorage.getItem(LISTA_KEY) || ''; } catch { return ''; } })();
-
-/** "20261115" -> "15/11/2026" */
-const rotuloLista = n => `${n.slice(6, 8)}/${n.slice(4, 6)}/${n.slice(0, 4)}`;
-
-function selecionarLista(nome) {
-  listaAtual = nome || '';
-  try { localStorage.setItem(LISTA_KEY, listaAtual); } catch { /* modo privado */ }
-}
-
-/** Mostra a última lista criada/importada neste aparelho; se ela não existir mais, a mais recente. */
-async function carregarListas() {
-  try {
-    const listas = await api('listarListas');
-    if (!listas.includes(listaAtual)) selecionarLista(listas[0] || '');
-    $('#titulo-lista').textContent = listaAtual ? 'Lista de ' + rotuloLista(listaAtual) : 'Nenhuma lista';
-    await carregarLista();
-  } catch (e) { toast(e.message, true); }
-}
+let versaoLocal = 0;   // muda a cada edição local; descarta recargas que começaram antes dela
+let emAndamento = 0;   // edições ainda não confirmadas pelo servidor
+const ATUALIZAR_A_CADA = 15000;
 
 /** Só dois tipos de unidade: KG (quilograma) e UN (unidade, padrão). */
 const normUn = u => (/^\s*(k|quil)/i.test(String(u || '')) ? 'KG' : 'UN');
 const fmtQtd = q => String(Number(q) || 0).replace('.', ',');
 
-async function carregarLista() {
-  if (!listaAtual) { itens = []; renderLista(); return; }
-  try { itens = await api('listarItens', { lista: listaAtual }); renderLista(); } catch (e) { toast(e.message, true); }
+async function carregarLista(silencioso = false) {
+  const versao = versaoLocal;
+  try {
+    const dados = await api('listarItens', {}, { silencioso });
+    if (versao !== versaoLocal || emAndamento) return; // uma edição local aconteceu no meio: não sobrescreve
+    itens = dados;
+    renderLista();
+  } catch (e) { if (!silencioso) toast(e.message, true); }
+}
+
+/** Executa uma edição otimista: atualiza a tela na hora, grava no servidor e desfaz se falhar. */
+async function editar(aplicar, desfazer, chamada) {
+  versaoLocal++;
+  emAndamento++;
+  aplicar();
+  renderLista();
+  try {
+    await chamada();
+  } catch (e) {
+    desfazer();
+    renderLista();
+    toast(e.message, true);
+    if (/não encontrado/i.test(e.message)) setTimeout(() => carregarLista(), 0); // outro usuário removeu
+  } finally {
+    emAndamento--;
+  }
 }
 
 function renderLista() {
   const ul = $('#lista');
+  // Não redesenha enquanto o usuário digita uma quantidade (evita perder o foco).
+  if (ul.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' &&
+      document.activeElement.type === 'number') return;
   ul.replaceChildren();
-  const comprado = it => it.status === 'Comprado';
   const ord = [...itens].sort(porSetorItem);
+  const pendentes = itens.filter(i => !i.comprado).length;
+  $('#titulo-lista').textContent = `Lista de compras · ${pendentes} pendente(s)`;
   if (!ord.length) {
-    ul.append(el('li', { className: 'vazio', textContent: listaAtual ? 'Lista vazia' : 'Crie uma lista em "Nova lista"' }));
+    ul.append(el('li', { className: 'vazio', textContent: 'Lista vazia — use "Nova lista" ou adicione itens' }));
     return;
   }
 
@@ -123,7 +139,7 @@ function renderLista() {
     el('span', { className: 'del-cab' })));
 
   for (const it of ord) {
-    const cb = el('input', { type: 'checkbox', checked: comprado(it) });
+    const cb = el('input', { type: 'checkbox', checked: it.comprado });
     cb.addEventListener('change', () => alternar(it, cb.checked));
 
     // Coluna Quantidade: tipo de unidade (UN/KG) + quantidade, editáveis.
@@ -135,20 +151,17 @@ function renderLista() {
     un.addEventListener('change', () => { qt.step = un.value === 'KG' ? '0.001' : '1'; alterarQuantidade(it, qt.value, un.value); });
     qt.addEventListener('change', () => alterarQuantidade(it, qt.value, un.value));
 
-    // Dados da NFC-e conciliada: "1,235 × 6,49 = R$ 8,02"
-    let sub = null;
-    if (it.chave && it.valorUnitario !== '') {
-      const q = Number(it.qtdComprada) || 0, v = Number(it.valorUnitario) || 0;
-      const desc = it.descricaoNfce && it.descricaoNfce !== it.item ? it.descricaoNfce + ' · ' : '';
-      sub = el('span', { className: 'sub', textContent: `${desc}${fmtQtd(q)} × ${v.toFixed(2).replace('.', ',')} = ${brl.format(q * v)}` });
-    }
-    const tag = it.origem === 'NFC-e'
-      ? el('span', { className: 'tag nfce', textContent: 'fora da lista' })
-      : (it.frequencia ? el('span', { className: 'tag', textContent: it.frequencia }) : null);
+    // Preço de referência (Modelo) ou pago (nota importada) e local.
+    const v = Number(it.valorUnitario) || 0;
+    const sub = v || it.local
+      ? el('span', { className: 'sub', textContent:
+          [v ? `${brl.format(v)}/${normUn(it.unidade)}` : '', it.local].filter(Boolean).join(' · ') })
+      : null;
+    const tag = it.periodicidade ? el('span', { className: 'tag', textContent: it.periodicidade }) : null;
 
     const del = el('button', { className: 'del', textContent: '✕', title: 'Remover', type: 'button' });
     del.addEventListener('click', () => remover(it));
-    ul.append(el('li', { className: comprado(it) ? 'feito' : '' },
+    ul.append(el('li', { className: it.comprado ? 'feito' : '' },
       el('span', { className: 'setor', textContent: it.setor || '—' }),
       el('label', {}, cb,
         el('span', { className: 'info' }, el('span', { className: 'nome', textContent: it.item }), sub),
@@ -158,14 +171,13 @@ function renderLista() {
   }
 }
 
-async function alterarQuantidade(it, valor, unidade) {
+function alterarQuantidade(it, valor, unidade) {
   const quantidade = Number(String(valor).replace(',', '.'));
   if (!(quantidade >= 0)) { toast('Quantidade inválida.', true); renderLista(); return; }
   const antes = { quantidade: it.quantidade, unidade: it.unidade };
-  it.quantidade = quantidade;
-  it.unidade = unidade;
-  try { await api('atualizarItem', { lista: listaAtual, id: it.id, campos: { quantidade, unidade } }); }
-  catch (e) { Object.assign(it, antes); renderLista(); toast(e.message, true); }
+  if (document.activeElement) document.activeElement.blur();
+  editar(() => Object.assign(it, { quantidade, unidade }), () => Object.assign(it, antes),
+    () => api('atualizarItem', { id: it.id, campos: { quantidade, unidade } }));
 }
 
 /** Ordem alfabética por setor e depois item; itens sem setor ficam no fim. */
@@ -186,14 +198,13 @@ async function carregarModelo() {
   return modeloResumo;
 }
 
-/* ---------- Nova lista (aba Modelo, filtrada por periodicidade) ---------- */
+/* ---------- Nova lista: itens do Modelo, filtrados por periodicidade, entram na aba Lista ---------- */
 
 const plural = n => `${n} ${n === 1 ? 'item' : 'itens'}`;
 
 async function abrirNovaLista() {
   const f = $('#form-nova');
   if (!f.hidden) { f.hidden = true; return; }
-  $('#nova-data').value = new Date().toLocaleDateString('sv-SE'); // aaaa-mm-dd no fuso local
   $('#cont-modelo').textContent = '';
   f.hidden = false;
   const r = await carregarModelo();
@@ -204,24 +215,21 @@ async function abrirNovaLista() {
 
 async function criarLista(ev) {
   ev.preventDefault();
-  const data = $('#nova-data').value.replace(/-/g, '');
   const caixas = [...document.querySelectorAll('#form-nova input[name=freq]')];
   const marcadas = caixas.filter(c => c.checked).map(c => c.value);
   if (!marcadas.length) { toast('Marque ao menos uma periodicidade.', true); return; }
   // Todas marcadas = Modelo inteiro (inclui itens sem periodicidade preenchida).
   const frequencias = marcadas.length === caixas.length ? [] : marcadas;
   try {
-    const r = await api('criarLista', { data, frequencias });
-    toast((r.criada ? 'Lista criada' : 'A lista já existia') + ` · ${r.adicionados} item(ns) do Modelo incluído(s).`);
+    const r = await api('criarLista', { frequencias });
+    toast(`${plural(r.adicionados)} incluído(s) na Lista` + (r.reativados ? ` · ${r.reativados} voltaram a ficar pendentes` : '') + '.');
     $('#form-nova').hidden = true;
-    selecionarLista(r.nome);
-    carregarListas();
+    carregarLista();
   } catch (e) { toast(e.message, true); }
 }
 
 async function adicionar(ev) {
   ev.preventDefault();
-  if (!listaAtual) { toast('Crie ou escolha uma lista primeiro.', true); return; }
   const nome = $('#novo-item').value.trim();
   if (!nome) return;
   const quantidade = Number($('#novo-qtd').value) || 1;
@@ -230,38 +238,41 @@ async function adicionar(ev) {
   $('#novo-item').value = '';
   $('#novo-qtd').value = 1;
   $('#novo-item').focus();
+  versaoLocal++;
   try {
-    const novo = await api('adicionarItem', { lista: listaAtual, item: { item: nome, quantidade, setor, unidade } });
+    const novo = await api('adicionarItem', { item: { item: nome, quantidade, setor, unidade } });
     itens.push(novo);
     renderLista();
   } catch (e) { toast(e.message, true); $('#novo-item').value = nome; }
 }
 
-async function alternar(it, marcado) {
-  const anterior = it.status;
-  it.status = marcado ? 'Comprado' : 'Pendente';
-  renderLista();
-  try { await api('atualizarItem', { lista: listaAtual, id: it.id, campos: { status: it.status } }); }
-  catch (e) { it.status = anterior; renderLista(); toast(e.message, true); }
+function alternar(it, marcado) {
+  const anterior = it.comprado;
+  editar(() => (it.comprado = marcado), () => (it.comprado = anterior),
+    () => api('atualizarItem', { id: it.id, campos: { comprado: marcado } }));
 }
 
-async function remover(it) {
+function remover(it) {
   const copia = itens;
-  itens = itens.filter(x => x.id !== it.id);
-  renderLista();
-  try { await api('removerItem', { lista: listaAtual, id: it.id }); }
-  catch (e) { itens = copia; renderLista(); toast(e.message, true); }
+  editar(() => (itens = itens.filter(x => x.id !== it.id)), () => (itens = copia),
+    () => api('removerItem', { id: it.id }));
 }
 
 async function limparComprados() {
-  if (!itens.some(i => i.status === 'Comprado')) return toast('Nenhum item comprado.');
-  if (!confirm('Remover todos os itens marcados como comprados?')) return;
+  if (!itens.some(i => i.comprado)) return toast('Nenhum item comprado.');
+  if (!confirm('Excluir da aba Lista todos os itens marcados como comprados?')) return;
+  versaoLocal++;
   try {
-    const r = await api('removerComprados', { lista: listaAtual });
-    toast(`${r.removidos} item(ns) removido(s).`);
+    const r = await api('removerComprados');
+    toast(`${r.removidos} item(ns) excluído(s) da Lista.`);
     carregarLista();
   } catch (e) { toast(e.message, true); }
 }
+
+/** Atualização automática: traz as mudanças feitas por outros usuários (ou direto na planilha). */
+function listaVisivel() { return !$('#aba-lista').hidden && !document.hidden && cfg.url && cfg.token; }
+setInterval(() => { if (listaVisivel() && !emAndamento) carregarLista(true); }, ATUALIZAR_A_CADA);
+document.addEventListener('visibilitychange', () => { if (listaVisivel()) carregarLista(true); });
 
 /* ============================ NFC-e / QR ============================ */
 
@@ -308,7 +319,6 @@ async function importar(url, html) {
   r.replaceChildren(el('p', { className: 'dica', textContent: 'Consultando a nota na SEFAZ…' }));
   try {
     const d = await api('importarNfce', { url, html });
-    if (d.lista) selecionarLista(d.lista); // a aba "Lista" passa a mostrar a lista do dia da compra
     renderResultado(d);
   } catch (e) {
     r.replaceChildren();
@@ -321,8 +331,8 @@ function renderResultado(d) {
   const aviso = d.duplicada
     ? el('p', { className: 'aviso', textContent: 'Esta nota já havia sido importada — nada foi gravado de novo.' })
     : el('p', { className: 'aviso ok', textContent:
-        `Nota importada: ${n.qtdItens} item(ns) gravado(s) na aba Compras e copiado(s) para a lista ${rotuloLista(d.lista)}.` +
-        (d.marcados.length ? ` Conciliados com a lista: ${d.marcados.join(', ')}.` : '') +
+        `Nota importada: ${n.qtdItens} item(ns) gravado(s) nas abas Compras e ${d.aba}.` +
+        (d.marcados.length ? ` Marcados como comprados na Lista: ${d.marcados.join(', ')}.` : '') +
         (d.foraDaLista ? ` ${d.foraDaLista} item(ns) fora da lista.` : '') });
 
   const tbody = el('tbody');

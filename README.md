@@ -47,18 +47,30 @@ docs/                # SPA publicada no GitHub Pages
 
 **`Modelo`** (você mantém):
 `(vazia) | Item | Periodicidade estimada | Setor | Unidade | Quantidade | Valor Unitário (R$) | Valor Total (R$) | Local | Comprado`
+- É a referência de layout: as abas `Lista` e `aaaammdd` são criadas com **exatamente** este cabeçalho,
+  formatação, largura de colunas e linha congelada. Se você mudar o Modelo, as abas novas seguem a mudança.
 - As colunas são localizadas pelo nome do cabeçalho, sem diferenciar acentos ou maiúsculas.
-  O app usa Item, Periodicidade, Setor, Unidade e Quantidade.
 - A periodicidade aceita `Semanal`, `Quinzenal`, `Mensal` ou `Demanda` (também "semanais", "sob demanda"…).
 
-**`aaaammdd`** (uma aba por lista, ex.: `20261115`):
-`ID | Item | Quantidade | Unidade | Frequencia | Origem | Status | CriadoEm | CompradoEm | DescricaoNFCe | QtdComprada | ValorUnitario | ChaveNFCe | Setor`
-- É criada em "Nova lista" com **todos os itens do Modelo**, ordenados por setor e item.
-- Ao importar uma nota, a aba da **data da compra** é criada se não existir e os produtos são conciliados:
-  itens da lista que casam recebem descrição, quantidade, valor e chave e ficam `Comprado`;
-  produtos que não estavam na lista entram como linha nova com `Origem = NFC-e`.
-- O casamento tenta primeiro "todas as palavras do item na descrição" e depois "a primeira palavra"
-  (ex.: `Carne (patinho/alcatra)` ↔ `CARNE PATINHO KG`).
+**`Lista`** — a lista de compras **única e compartilhada**, no formato do Modelo:
+- A coluna A (sem título) guarda o ID de cada item. Não apague nem edite essa coluna. Itens digitados
+  direto na planilha, sem ID, ganham um automaticamente.
+- `Comprado` é uma caixa de seleção. `Valor Total` é a fórmula `Quantidade × Valor Unitário`.
+- **Vários usuários ao mesmo tempo**: cada ação grava só o campo alterado, localizado pelo ID (não pela
+  posição da linha), e as gravações passam por um bloqueio do Apps Script, uma de cada vez. O app recarrega
+  a lista a cada 15 segundos. Dá para editar também direto na planilha.
+- *Nova lista* acrescenta os itens do Modelo das periodicidades marcadas. Não apaga nada, não duplica
+  itens já presentes e faz itens já comprados voltarem a ficar pendentes.
+- *Remover itens comprados* exclui da aba as linhas com `Comprado` marcado.
+- Ao importar uma nota, os itens pendentes que casam com produtos da nota ficam com `Comprado` marcado e
+  recebem quantidade, unidade, valor unitário pago e local. O casamento tenta primeiro "todas as palavras
+  do item na descrição" e depois "a primeira palavra" (ex.: `Carne (patinho/alcatra)` ↔ `CARNE PATINHO KG`).
+
+**`aaaammdd`** (ex.: `20261115`) — a compra do dia, no formato do Modelo:
+- Criada ao importar a primeira nota daquela data. Notas do mesmo dia entram na mesma aba.
+- Uma linha por produto da nota: coluna A = chave da nota, `Item` = descrição na nota, `Comprado` marcado.
+- Se já existir uma aba com esse nome em outro formato (versão anterior do app), ela é renomeada para
+  `aaaammdd_antiga` e uma nova é criada.
 
 **`Compras`** (uma linha por item da nota, na mesma ordem de colunas do Modelo):
 `ChaveNFCe | Item | Periodicidade | Setor | Unidade | Quantidade | Valor Unitário | Valor Total | Local | Data Compra`
@@ -77,15 +89,14 @@ Todas as chamadas levam `{ "action": "...", "token": "..." }`.
 | action | parâmetros | retorno |
 |---|---|---|
 | `ping` | — | versão e hora |
-| `listarListas` | — | nomes das abas `aaaammdd`, mais recente primeiro |
 | `resumoModelo` | — | total de itens do Modelo, contagem por periodicidade e lista de setores |
-| `criarLista` | `data` (aaaammdd); `frequencias?` opcional para filtrar (o app não usa) | `{nome, criada, adicionados}` |
-| `listarItens` | `lista` | itens da lista |
-| `adicionarItem` | `lista, item: {item, quantidade, setor?, unidade?, frequencia?}` | item criado |
-| `atualizarItem` | `lista, id, campos: {status?, item?, quantidade?, setor?...}` | — |
-| `removerItem` | `lista, id` | — |
-| `removerComprados` | `lista` | `{removidos}` |
-| `importarNfce` | `url` (link do QR) e/ou `html` (página colada) | nota, itens, `lista`, `marcados`, `foraDaLista` |
+| `criarLista` | `frequencias` (`["Semanal","Mensal",…]`; vazio = Modelo inteiro) | `{adicionados, reativados}` |
+| `listarItens` | — | itens da aba Lista |
+| `adicionarItem` | `item: {item, quantidade, setor?, unidade?}` | item criado |
+| `atualizarItem` | `id, campos: {comprado?, quantidade?, unidade?, item?, setor?}` | — |
+| `removerItem` | `id` | — |
+| `removerComprados` | — | `{removidos}` |
+| `importarNfce` | `url` (link do QR) e/ou `html` (página colada) | nota, itens, `aba` (aaaammdd), `marcados`, `foraDaLista` |
 | `listarCompras` | `limite?` | notas agrupadas, `totalMes`, `totalGeral` |
 | `detalharCompra` | `chave` | itens da nota |
 
@@ -132,15 +143,16 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
 
 ## Como usar
 
-- **Lista**: mostra a última lista criada ou importada neste aparelho (ou a mais recente). Toque em
-  *Nova lista*, informe a data e marque as periodicidades do Modelo (semanais, quinzenais, mensais,
-  demanda). Com todas marcadas, entram todos os itens do Modelo.
+- **Lista**: mostra a aba `Lista`, a mesma para todos os usuários, e se atualiza sozinha a cada 15 s.
+  Toque em *Nova lista* e marque as periodicidades do Modelo (semanais, quinzenais, mensais, demanda)
+  para incluir esses itens.
   - As colunas são **Setor**, **Item** e **Quantidade**, em ordem alfabética de setor e depois de item.
-  - A coluna **Quantidade** é editável: tipo de unidade (`UN` ou `KG`) e o número. A alteração é gravada na
-    hora na aba da lista.
-  - Adicione itens avulsos (setor e unidade opcionais), marque o que comprou e remova os comprados.
+  - A coluna **Quantidade** é editável: tipo de unidade (`UN` ou `KG`) e o número.
+  - Adicione itens avulsos (setor e unidade opcionais), marque o que comprou e use *Remover itens
+    comprados* para excluí-los da aba `Lista`.
 - **Escanear**: toque em *Ler QR Code da nota* e aponte para o QR do cupom. Ou cole o link.
-  O resultado aparece na hora e as linhas são gravadas na aba `Compras`.
+  A nota é gravada nas abas `Compras` e `aaaammdd` (data da compra), e os itens correspondentes da
+  `Lista` ficam marcados como comprados.
 - **Compras**: histórico das notas (toque em uma para ver os itens) e o total do mês.
 - Também dá para importar abrindo `https://<site>/?nfce=<link-da-nota>`.
 
@@ -153,10 +165,13 @@ O site fica em `https://<seu-usuario>.github.io/gastos/`.
 - **Bloqueio ou captcha da SEFAZ.** O Apps Script roda em servidores do Google (fora do Brasil). Alguns
   portais bloqueiam esses acessos ou pedem captcha. Nesse caso, use *Importação manual*: abra a nota no
   navegador, copie o código-fonte da página e cole no app.
-- **A nota vai para a lista da data da compra.** Se a lista foi criada para outro dia (ex.: sábado, e a
-  compra foi no domingo), a nota cria uma aba nova para o domingo em vez de conciliar com a de sábado.
 - **Associação lista ↔ nota** é aproximada: o item é marcado quando todas as palavras do nome (3 letras ou
-  mais) aparecem na descrição do produto. Descrições muito abreviadas ("ARR TJ 5K") podem não casar.
+  mais), ou ao menos a primeira, aparecem na descrição do produto. Descrições muito abreviadas
+  ("ARR TJ 5K") podem não casar.
+- **Edição simultânea**: duas pessoas mudando o *mesmo campo do mesmo item* ao mesmo tempo — vale a última
+  gravação. Os outros usuários veem a mudança em até 15 s.
+- **Não reordene a aba Lista pela planilha** enquanto alguém usa o app. O app acha os itens pelo ID e
+  continua funcionando, mas a fórmula de `Valor Total` pode ficar apontando para outra linha.
 - **Cotas grátis do Apps Script** (conta pessoal): cerca de 20 mil chamadas `UrlFetch` por dia e 6 minutos
   por execução. Sobra para uso doméstico.
 

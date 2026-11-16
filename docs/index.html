@@ -27,14 +27,11 @@
     <!-- LISTA DE COMPRAS -->
     <section id="aba-lista" class="aba">
       <div class="linha topo-lista">
-        <h2 id="titulo-lista">Lista</h2>
+        <h2 id="titulo-lista">Lista de compras</h2>
         <button id="btn-nova" type="button" class="secundario">Nova lista</button>
       </div>
 
       <form id="form-nova" class="painel" hidden>
-        <label>Data da lista
-          <input id="nova-data" type="date" required>
-        </label>
         <fieldset>
           <legend>Itens da aba Modelo por periodicidade</legend>
           <label class="check"><input type="checkbox" name="freq" value="Semanal" checked> Semanais <span class="cont" data-freq="Semanal"></span></label>
@@ -42,10 +39,11 @@
           <label class="check"><input type="checkbox" name="freq" value="Mensal" checked> Mensais <span class="cont" data-freq="Mensal"></span></label>
           <label class="check"><input type="checkbox" name="freq" value="Demanda" checked> Demanda <span class="cont" data-freq="Demanda"></span></label>
         </fieldset>
-        <p class="dica">Com todas marcadas, entram todos os itens do Modelo<span id="cont-modelo"></span>,
-          inclusive os sem periodicidade. Se a lista da data já existir, só os itens que faltam são incluídos.</p>
+        <p class="dica">Os itens entram na aba <strong>Lista</strong>, compartilhada por todos. Com todas marcadas,
+          entra o Modelo inteiro<span id="cont-modelo"></span>. Nada é apagado: itens que já estão na Lista não
+          são duplicados, e os já comprados voltam a ficar pendentes.</p>
         <div class="linha">
-          <button type="submit">Criar lista</button>
+          <button type="submit">Incluir na Lista</button>
           <button type="button" id="btn-cancelar-nova" class="secundario">Cancelar</button>
         </div>
       </form>
