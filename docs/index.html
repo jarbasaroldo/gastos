@@ -7,9 +7,9 @@
   <title>Controle de Gastos</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- ?v=… força o navegador a baixar a versão nova (troque o número a cada publicação) -->
-  <link rel="stylesheet" href="style.css?v=20261116-6">
+  <link rel="stylesheet" href="style.css?v=20261117-1">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
-  <script src="app.js?v=20261116-6" defer></script>
+  <script src="app.js?v=20261117-1" defer></script>
 </head>
 <body>
   <header>
@@ -83,6 +83,27 @@
 
     <!-- HISTÓRICO -->
     <section id="aba-compras" class="aba" hidden>
+      <form id="form-filtro" class="painel filtro">
+        <label>Período
+          <select id="filtro-periodo">
+            <option value="">Todo o período</option>
+            <option value="mes">Este mês</option>
+            <option value="mes-passado">Mês passado</option>
+            <option value="30d">Últimos 30 dias</option>
+            <option value="90d">Últimos 90 dias</option>
+            <option value="ano">Este ano</option>
+            <option value="personalizado">Personalizado…</option>
+          </select>
+        </label>
+        <div id="filtro-datas" class="linha datas" hidden>
+          <label>De <input id="filtro-de" type="date"></label>
+          <label>Até <input id="filtro-ate" type="date"></label>
+        </div>
+        <label>Local da compra
+          <select id="filtro-local"><option value="">Todos os locais</option></select>
+        </label>
+        <button type="button" id="btn-limpar-filtro" class="secundario" hidden>Limpar filtros</button>
+      </form>
       <div id="resumo" class="cards"></div>
       <ul id="compras" class="lista"></ul>
     </section>

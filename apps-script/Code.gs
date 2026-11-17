@@ -137,7 +137,7 @@ function doPost(e) {
 }
 
 const ACOES = {
-  ping:             ()  => ({ versao: 3, hora: new Date().toISOString() }),
+  ping:             ()  => ({ versao: 4, hora: new Date().toISOString() }),
   resumoModelo:     ()  => resumoModelo_(),
   criarLista:       req => comLock_(() => criarLista_(req.frequencias)),
   listarItens:      ()  => listarItens_(),
@@ -146,7 +146,7 @@ const ACOES = {
   removerItem:      req => comLock_(() => removerItem_(req.id)),
   removerComprados: ()  => comLock_(() => removerComprados_()),
   importarNfce:     req => comLock_(() => importarNfce_(req.url, req.html)),
-  listarCompras:    req => listarCompras_(Number(req.limite) || 50),
+  listarCompras:    req => listarCompras_(Number(req.limite) || 50, req.filtro || {}),
   detalharCompra:   req => detalharCompra_(String(req.chave || '')),
 };
 
@@ -1111,10 +1111,23 @@ function migrarCompras_(sh, ss) {
   log_('migracao (info)', '', 'Aba Compras convertida para o novo layout', novos.length + ' linha(s)', '', true);
 }
 
-function listarCompras_(limite) {
+/** "aaaa-mm-dd" (campo de data do app) → Date local; `fimDoDia` = 23:59:59.999 do mesmo dia. */
+function dataFiltro_(s, fimDoDia) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return fimDoDia ? new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999) : new Date(+m[1], +m[2] - 1, +m[3]);
+}
+
+/**
+ * Notas da aba Compras (mais recentes primeiro). `filtro`: { de, ate } ("aaaa-mm-dd", inclusivos) e
+ * { local } (nome do estabelecimento). Devolve também os locais existentes, para o campo de filtro.
+ * totalMes e totalGeral ignoram o filtro; totalFiltro e qtdFiltro são do que passou no filtro.
+ */
+function listarCompras_(limite, filtro) {
+  filtro = filtro || {};
   const sh = aba_(ss_(), ABAS.COMPRAS);
   const n = sh.getLastRow();
-  if (n < 2) return { notas: [], totalMes: 0, totalGeral: 0 };
+  if (n < 2) return { notas: [], totalMes: 0, totalGeral: 0, totalFiltro: 0, qtdFiltro: 0, locais: [] };
   const vals = sh.getRange(2, 1, n - 1, ABAS.COMPRAS.cab.length).getValues();
   const porChave = {};
   vals.forEach(r => {
@@ -1132,14 +1145,32 @@ function listarCompras_(limite) {
     .sort((a, b) => (b.data ? b.data.getTime() : 0) - (a.data ? a.data.getTime() : 0));
   const hoje = new Date();
   let totalMes = 0, totalGeral = 0;
+  const locais = {};
   notas.forEach(nt => {
     totalGeral += nt.total;
     if (nt.data && nt.data.getMonth() === hoje.getMonth() && nt.data.getFullYear() === hoje.getFullYear()) totalMes += nt.total;
+    const l = String(nt.estabelecimento || '').trim();
+    if (l) locais[l] = true;
   });
+
+  const de = dataFiltro_(filtro.de, false), ate = dataFiltro_(filtro.ate, true);
+  const local = normalizar_(filtro.local);
+  const filtradas = notas.filter(nt => {
+    if ((de || ate) && !nt.data) return false; // sem data não entra em filtro de período
+    if (de && nt.data < de) return false;
+    if (ate && nt.data > ate) return false;
+    if (local && normalizar_(nt.estabelecimento) !== local) return false;
+    return true;
+  });
+  const totalFiltro = filtradas.reduce((s, nt) => s + nt.total, 0);
+
   return {
-    notas: notas.slice(0, limite).map(nt => ({ chave: nt.chave, data: iso_(nt.data), estabelecimento: nt.estabelecimento, total: round2_(nt.total), itens: nt.itens })),
+    notas: filtradas.slice(0, limite).map(nt => ({ chave: nt.chave, data: iso_(nt.data), estabelecimento: nt.estabelecimento, total: round2_(nt.total), itens: nt.itens })),
     totalMes: round2_(totalMes),
     totalGeral: round2_(totalGeral),
+    totalFiltro: round2_(totalFiltro),
+    qtdFiltro: filtradas.length,
+    locais: Object.keys(locais).sort((a, b) => a.localeCompare(b, 'pt-BR')),
   };
 }
 

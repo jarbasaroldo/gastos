@@ -424,16 +424,111 @@ function renderResultado(d) {
 
 /* ============================ Histórico ============================= */
 
+/* ---------- Filtros: período e local da compra ---------- */
+
+const FILTRO_KEY = 'gastos.filtroCompras';
+const isoDia = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Datas "aaaa-mm-dd" de um período pré-definido (ou dos campos De/Até, no personalizado). */
+function intervaloPeriodo(p) {
+  const h = new Date();
+  const diasAtras = n => isoDia(new Date(h.getFullYear(), h.getMonth(), h.getDate() - n));
+  switch (p) {
+    case 'mes': return { de: isoDia(new Date(h.getFullYear(), h.getMonth(), 1)), ate: isoDia(h) };
+    case 'mes-passado': return { de: isoDia(new Date(h.getFullYear(), h.getMonth() - 1, 1)),
+                                 ate: isoDia(new Date(h.getFullYear(), h.getMonth(), 0)) };
+    case '30d': return { de: diasAtras(29), ate: isoDia(h) };
+    case '90d': return { de: diasAtras(89), ate: isoDia(h) };
+    case 'ano': return { de: isoDia(new Date(h.getFullYear(), 0, 1)), ate: isoDia(h) };
+    case 'personalizado': return { de: $('#filtro-de').value, ate: $('#filtro-ate').value };
+    default: return { de: '', ate: '' };
+  }
+}
+
+function filtroAtual() {
+  return { ...intervaloPeriodo($('#filtro-periodo').value), local: $('#filtro-local').value };
+}
+
+function salvarFiltro() {
+  const f = { periodo: $('#filtro-periodo').value, de: $('#filtro-de').value, ate: $('#filtro-ate').value,
+              local: $('#filtro-local').value || localFiltroSalvo };
+  try { localStorage.setItem(FILTRO_KEY, JSON.stringify(f)); } catch { /* ok */ }
+}
+
+function restaurarFiltro() {
+  let f = {};
+  try { f = JSON.parse(localStorage.getItem(FILTRO_KEY)) || {}; } catch { /* ok */ }
+  $('#filtro-periodo').value = f.periodo || '';
+  if ($('#filtro-periodo').value !== (f.periodo || '')) $('#filtro-periodo').value = '';
+  $('#filtro-de').value = f.de || '';
+  $('#filtro-ate').value = f.ate || '';
+  localFiltroSalvo = f.local || '';
+  atualizarCamposFiltro();
+}
+
+let localFiltroSalvo = '';
+
+function atualizarCamposFiltro() {
+  $('#filtro-datas').hidden = $('#filtro-periodo').value !== 'personalizado';
+  $('#btn-limpar-filtro').hidden = !$('#filtro-periodo').value && !$('#filtro-local').value && !localFiltroSalvo;
+}
+
+/** Preenche o campo Local com os estabelecimentos das notas, mantendo a escolha atual. */
+function preencherLocais(locais) {
+  const sel = $('#filtro-local');
+  const atual = sel.value || localFiltroSalvo;
+  const opcoes = [...(locais || [])];
+  if (atual && !opcoes.includes(atual)) opcoes.unshift(atual); // filtro escolhido que sumiu do histórico
+  sel.replaceChildren(el('option', { value: '', textContent: 'Todos os locais' }),
+    ...opcoes.map(l => el('option', { value: l, textContent: l })));
+  sel.value = atual;
+  localFiltroSalvo = '';
+  atualizarCamposFiltro();
+}
+
+function aoMudarFiltro() {
+  atualizarCamposFiltro();
+  salvarFiltro();
+  const f = filtroAtual();
+  if (f.de && f.ate && f.de > f.ate) return toast('A data inicial é depois da final.', true);
+  carregarCompras();
+}
+
+function limparFiltro() {
+  $('#filtro-periodo').value = '';
+  $('#filtro-de').value = '';
+  $('#filtro-ate').value = '';
+  $('#filtro-local').value = '';
+  localFiltroSalvo = '';
+  aoMudarFiltro();
+}
+
+let consultaCompras = 0; // descarta respostas de filtros antigos que cheguem fora de ordem
+
 async function carregarCompras() {
+  const minha = ++consultaCompras;
+  const filtro = filtroAtual();
+  if (localFiltroSalvo && !filtro.local) filtro.local = localFiltroSalvo; // antes de as opções carregarem
+  const filtrando = !!(filtro.de || filtro.ate || filtro.local);
   try {
-    const d = await api('listarCompras', { limite: 50 });
+    const d = await api('listarCompras', { limite: 50, filtro });
+    if (minha !== consultaCompras) return;
+    preencherLocais(d.locais);
+    const totalFiltro = d.totalFiltro ?? d.totalGeral; // backend antigo não tem filtro
     $('#resumo').replaceChildren(
       el('div', { className: 'card' }, el('small', { textContent: 'Gasto no mês' }), el('strong', { textContent: brl.format(d.totalMes) })),
-      el('div', { className: 'card' }, el('small', { textContent: 'Total registrado' }), el('strong', { textContent: brl.format(d.totalGeral) })));
+      filtrando
+        ? el('div', { className: 'card' },
+            el('small', { textContent: `Total filtrado · ${d.qtdFiltro ?? d.notas.length} nota(s)` }),
+            el('strong', { textContent: brl.format(totalFiltro) }))
+        : el('div', { className: 'card' }, el('small', { textContent: 'Total registrado' }), el('strong', { textContent: brl.format(d.totalGeral) })));
 
     const ul = $('#compras');
     ul.replaceChildren();
-    if (!d.notas.length) { ul.append(el('li', { className: 'vazio', textContent: 'Nenhuma nota importada ainda' })); return; }
+    if (!d.notas.length) {
+      ul.append(el('li', { className: 'vazio', textContent: filtrando ? 'Nenhuma nota neste filtro' : 'Nenhuma nota importada ainda' }));
+      return;
+    }
     for (const nt of d.notas) {
       const detalhe = el('div');
       const li = el('li', { className: 'nota' },
@@ -453,8 +548,12 @@ async function detalhar(chave, alvo) {
   try {
     const itensNota = await api('detalharCompra', { chave });
     const tbody = el('tbody');
+    // Descrição da planilha (pode ser o nome do Modelo) e, abaixo, a descrição original da nota.
+    const mesma = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     itensNota.forEach(it => tbody.append(el('tr', {},
-      el('td', { textContent: it.descricao }),
+      el('td', {}, el('div', { textContent: it.descricao }),
+        it.descricaoNota && !mesma(it.descricaoNota, it.descricao)
+          ? el('small', { textContent: it.descricaoNota }) : null),
       el('td', { className: 'num', textContent: brl.format(Number(it.valorTotal) || 0) }))));
     alvo.replaceChildren(el('table', {}, tbody));
   } catch (e) { toast(e.message, true); }
@@ -530,6 +629,10 @@ $('#btn-html').addEventListener('click', () => {
 $('#form-config').addEventListener('submit', salvarConfig);
 $('#btn-link-cfg').addEventListener('click', copiarLinkConfig);
 $('#btn-copiar-favorito').addEventListener('click', copiarFavorito);
+['#filtro-periodo', '#filtro-de', '#filtro-ate', '#filtro-local'].forEach(s => $(s).addEventListener('change', aoMudarFiltro));
+$('#btn-limpar-filtro').addEventListener('click', limparFiltro);
+$('#form-filtro').addEventListener('submit', ev => ev.preventDefault());
+restaurarFiltro();
 prepararFavorito();
 
 if (!lerParametrosIniciais()) mostrarAba(cfg.url && cfg.token ? 'lista' : 'config');
