@@ -185,6 +185,7 @@ label.check input { width: 22px; height: 22px; min-height: 0; flex: none; accent
 /* ------------------------------ Compras -------------------------------- */
 .nota { flex-direction: column; align-items: stretch !important; cursor: pointer; }
 .nota .topo { display: flex; justify-content: space-between; gap: 8px; }
+.nota .topo .nome { font-size: 16px; font-weight: 700; }
 .nota .valor { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .nota td small { display: block; color: var(--suave); font-size: .85em; margin-top: 2px; }
 
